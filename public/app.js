@@ -682,7 +682,6 @@
     main.innerHTML = `<div class="page">
       <div class="page-head"><h2>Integrations</h2></div>
       ${tabs}
-      <div class="callout">AI model bersifat <b>opsional</b>. Model hanya memilih tool analisis dan merangkum hasilnya. Semua angka tetap dihitung oleh kode. Urutan pemakaian: <b>Model utama → Model backup → Rule-based agent</b>, jadi chat tetap jalan walaupun model error, timeout, atau kena rate limit.</div>
       ${slotHtml('primary', 'Model utama', 'Dipakai pertama untuk setiap pertanyaan.')}
       ${slotHtml('backup', 'Model backup', 'Dipakai kalau model utama gagal. Sebaiknya dari provider lain.')}
       <div class="section"><h3>Cara mendapatkan API key</h3>
