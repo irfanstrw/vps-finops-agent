@@ -1,0 +1,13 @@
+{
+  "name": "vps-finops-agent",
+  "version": "1.0.0",
+  "description": "FinOps agent for your own VPS, priced with AWS us-east-1 on-demand rates.",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

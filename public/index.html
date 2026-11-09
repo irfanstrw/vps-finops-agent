@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VPS FinOps Agent</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="login" class="login hidden">
+    <form id="loginForm" class="login-card">
+      <div class="monogram lg">F</div>
+      <h1>VPS FinOps Agent</h1>
+      <p class="muted">Analisis biaya server kamu, dihitung dengan harga AWS us-east-1 on-demand.</p>
+      <input id="password" type="password" placeholder="Password" autocomplete="current-password" required>
+      <button class="btn primary" type="submit">Masuk</button>
+      <p id="loginErr" class="err"></p>
+    </form>
+  </div>
+
+  <div id="app" class="app hidden">
+    <header class="topbar">
+      <div class="brand"><span class="monogram">F</span><span>VPS FinOps <em>Agent</em></span></div>
+      <div class="top-right">
+        <span id="balancePill" class="pill" title="Saldo kredit"></span>
+        <button id="themeBtn" class="icon-btn" title="Ganti tema">☾</button>
+        <button id="logoutBtn" class="link">Keluar</button>
+      </div>
+    </header>
+    <aside class="sidebar">
+      <button id="newChatBtn" class="btn primary wide">Percakapan baru</button>
+      <div class="nav-label">Workspace</div>
+      <nav class="nav">
+        <a href="#/overview" data-nav="overview"><span class="dot"></span>Ringkasan</a>
+        <a href="#/tasks" data-nav="tasks"><span class="dot"></span>Tasks</a>
+        <a href="#/automations" data-nav="automations"><span class="dot"></span>Automations</a>
+        <a href="#/artifacts" data-nav="artifacts"><span class="dot"></span>Artifacts</a>
+        <a href="#/context" data-nav="context"><span class="dot"></span>Context files</a>
+        <a href="#/integrations" data-nav="integrations"><span class="dot"></span>Integrations</a>
+      </nav>
+      <div class="nav-label">Terbaru</div>
+      <div id="recent" class="recent"></div>
+      <div class="sidebar-foot">Region · us-east-1</div>
+    </aside>
+    <main id="main" class="main"></main>
+  </div>
+
+  <div id="modal" class="modal hidden"><div class="modal-card" id="modalCard"></div></div>
+  <script src="/app.js"></script>
+</body>
+</html>
