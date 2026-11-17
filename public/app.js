@@ -636,9 +636,11 @@
 
   // ---------- integrations ----------
   async function renderIntegrations(main, tab) {
-    tab = tab === 'ai' ? 'ai' : 'vps';
-    const tabs = `<nav class="tabs" aria-label="Integrations"><a href="#/integrations/vps" ${tab === 'vps' ? 'aria-current="page"' : ''}>VPS</a><a href="#/integrations/ai" ${tab === 'ai' ? 'aria-current="page"' : ''}>AI Model</a></nav>`;
+    tab = ['ai', 'aws'].includes(tab) ? tab : 'vps';
+    const cur = (t) => (tab === t ? 'aria-current="page"' : '');
+    const tabs = `<nav class="tabs" aria-label="Integrations"><a href="#/integrations/vps" ${cur('vps')}>VPS</a><a href="#/integrations/aws" ${cur('aws')}>Akun AWS</a><a href="#/integrations/ai" ${cur('ai')}>AI Model</a></nav>`;
     if (tab === 'ai') return renderAi(main, tabs);
+    if (tab === 'aws') return renderAws(main, tabs);
 
     const [list, p] = await Promise.all([api('GET', '/api/vps'), api('GET', '/api/pricing')]);
     const origin = location.origin;
@@ -769,6 +771,94 @@
         $('#sErr').textContent = err.message;
       }
     });
+  }
+
+  // ---------- akun AWS ----------
+  async function renderAws(main, tabs) {
+    const s = await api('GET', '/api/aws');
+    const rep = s.report;
+    const reportHtml = rep
+      ? `<section class="section"><h2>Tagihan AWS, 30 hari terakhir</h2>
+          <dl class="facts" style="max-width:420px;margin-bottom:14px">
+            <div><dt>Total 30 hari</dt><dd>${esc(usd(rep.total))} ${esc(rep.currency)}</dd></div>
+            <div><dt>Bulan ini</dt><dd>${esc(usd(rep.mtd))} ${esc(rep.currency)}</dd></div>
+            <div><dt>Data terbaru</dt><dd>${esc(rep.lastDate)}<small>AWS menunda data sampai 24 jam</small></dd></div>
+          </dl>
+          <div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Layanan</th><th scope="col" class="num">Biaya</th></tr></thead><tbody>${rep.services
+            .map((x) => `<tr><td>${esc(x.name)}</td><td class="num">${esc(usd(x.amount))}</td></tr>`)
+            .join('')}</tbody></table></div></section>`
+      : s.configured
+        ? '<p class="muted">Kredensial tersimpan, tetapi belum ada data. Klik Sinkronkan sekarang.</p>'
+        : '';
+    const status = s.configured
+      ? `<p>Kredensial: <code>${esc(s.keyHint)}</code>${s.fromEnv ? ' (dari environment variable)' : ''}. ${s.lastSync ? `Sinkronisasi terakhir ${esc(fmtTime(s.lastSync))}.` : 'Belum pernah sinkron.'} Permintaan API dipakai: ${esc(s.requests)}.</p>
+         ${s.lastError ? `<p class="err" role="alert">${esc(s.lastError)}</p>` : ''}`
+      : '<p class="muted">Belum tersambung. Isi kredensial IAM baca-saja di bawah.</p>';
+    const body = `${tabs}
+      <p class="muted">Menarik tagihan AWS yang sebenarnya lewat Cost Explorer. Angka ini berbeda dari estimasi VPS: ini biaya akun AWS yang sungguh ditagihkan, dan AWS menundanya sampai 24 jam. Data ini tidak mengurangi saldo kredit dan tidak masuk forecast VPS.</p>
+      <div class="note"><b>Biaya API:</b> AWS menagih $0.01 per halaman hasil Cost Explorer. Aplikasi ini menyinkronkan otomatis sekali sehari dan membatasi sinkron manual paling cepat tiap ${esc(s.minMinutes)} menit, jadi biayanya sekitar satu sen per hari.</div>
+      <section class="box"><h2>Sambungan</h2>${status}
+        <form id="awsForm" style="display:grid;gap:10px;max-width:560px;margin-top:10px">
+          <label>Access key ID<input id="awsId" autocomplete="off" placeholder="AKIA…" ${s.fromEnv ? 'disabled' : ''}></label>
+          <label>Secret access key<input id="awsSecret" type="password" autocomplete="off" placeholder="${s.configured ? 'tersimpan. Isi untuk mengganti.' : 'tempel secret access key'}" ${s.fromEnv ? 'disabled' : ''}></label>
+          <p class="err" id="awsErr" role="alert"></p>
+          <div class="row"><button class="btn primary" type="submit" ${s.fromEnv ? 'disabled' : ''}>Simpan kredensial</button><button class="btn" type="button" id="awsSync" ${s.configured ? '' : 'disabled'}>Sinkronkan sekarang</button>${s.configured && !s.fromEnv ? '<button class="btn danger" type="button" id="awsClear">Hapus kredensial</button>' : ''}<span id="awsResult" role="status"></span></div>
+        </form></section>
+      ${reportHtml}
+      <section class="section"><h2>Cara membuat kredensial baca-saja</h2>
+        <ol class="steps">
+          <li>Buka AWS Console, lalu <b>Billing and Cost Management</b>. Di <b>Cost Explorer</b>, klik <b>Launch Cost Explorer</b> kalau belum pernah dibuka. AWS butuh sampai 24 jam untuk menyiapkan data pertama.</li>
+          <li>Buka <b>IAM</b>, buat user baru tanpa akses console, lalu pasang kebijakan di bawah.</li>
+          <li>Di user itu, buat <b>Access key</b> (use case: Application running outside AWS), lalu tempel ke form di atas.</li>
+        </ol>
+        <p>Kebijakan IAM minimal, hanya boleh membaca biaya:</p>
+        ${codeBox('{\n  "Version": "2012-10-17",\n  "Statement": [\n    { "Effect": "Allow", "Action": "ce:GetCostAndUsage", "Resource": "*" }\n  ]\n}')}
+        <p class="muted" style="margin-top:10px">Secret disimpan di server dan tidak pernah dikirim balik ke browser. Untuk deployment, lebih aman memakai environment variable <code>FINOPS_AWS_ACCESS_KEY_ID</code> dan <code>FINOPS_AWS_SECRET_ACCESS_KEY</code>. Jangan pakai access key akun root.</p>
+      </section>
+      <section class="section"><h2>Ekspor tanpa terkunci vendor</h2>
+        <p>Semua biaya (agent VPS dan AWS) bisa diunduh dengan nama kolom <b>FOCUS</b> (FinOps Open Cost and Usage Specification), standar terbuka yang sama dipakai AWS, Azure, dan Google Cloud. File ini memuat subset kolom FOCUS, dan kolom tambahan diawali <code>x_</code>. VPS sample AWS tidak diekspor karena hanya proyeksi.</p>
+        <a class="btn" href="/api/export/focus.csv" download style="display:inline-flex;align-items:center;text-decoration:none">Unduh CSV FOCUS</a>
+      </section>`;
+    main.innerHTML = pageHtml('Integrations', '', body);
+
+    const result = $('#awsResult');
+    $('#awsForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      $('#awsErr').textContent = '';
+      try {
+        await api('PUT', '/api/aws', { accessKeyId: $('#awsId').value, secretAccessKey: $('#awsSecret').value });
+        toast('Kredensial tersimpan');
+        renderAws(main, tabs);
+      } catch (err) {
+        $('#awsErr').textContent = err.message;
+      }
+    });
+    $('#awsSync').addEventListener('click', async (e) => {
+      e.target.disabled = true;
+      result.textContent = 'Menarik data dari AWS…';
+      try {
+        const r = await api('POST', '/api/aws/sync');
+        if (r.error) {
+          result.innerHTML = `<span class="s-alert">Gagal: ${esc(r.error)}</span>`;
+          e.target.disabled = false;
+        } else {
+          toast('Sinkronisasi selesai');
+          renderAws(main, tabs);
+        }
+      } catch (err) {
+        result.innerHTML = `<span class="s-alert">${esc(err.message)}</span>`;
+        e.target.disabled = false;
+      }
+    });
+    const clr = $('#awsClear');
+    if (clr)
+      clr.addEventListener('click', () =>
+        confirmInline(clr, 'Yakin ingin hapus?', 'Ya, hapus', async () => {
+          await api('PUT', '/api/aws', { clear: true });
+          toast('Kredensial dihapus');
+          renderAws(main, tabs);
+        })
+      );
   }
 
   // ---------- AI model ----------

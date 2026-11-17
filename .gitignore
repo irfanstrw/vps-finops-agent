@@ -5,3 +5,4 @@ tools/
 .env*
 *.backup.docx
 .ui-shots/
+*.backup2.docx

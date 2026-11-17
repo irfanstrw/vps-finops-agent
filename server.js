@@ -11,6 +11,8 @@ const agent = require('./lib/agent');
 const automations = require('./lib/automations');
 const demo = require('./lib/demo');
 const llm = require('./lib/llm');
+const aws = require('./lib/aws');
+const focus = require('./lib/focus');
 
 const PORT = Number(process.env.PORT) || 8080;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -186,6 +188,7 @@ route('GET', '/api/cron', async (req, res) => {
   const secret = process.env.CRON_SECRET;
   if (!secret || !safeEqual(req.headers.authorization || '', `Bearer ${secret}`)) throw new HttpError(401, 'Unauthorized');
   automations.tick();
+  await aws.syncIfDue();
   send(res, 200, { ok: true });
 }, { auth: false });
 
@@ -203,6 +206,23 @@ route('GET', '/api/overview', async (req, res) => {
     vps: store.db.vps.map(vpsView),
     anomalies: costs.detectAnomalies({ fromDays: 30 }).slice(0, 10),
   });
+});
+
+// Tagihan AWS asli (Cost Explorer, hanya baca)
+route('GET', '/api/aws', async (req, res) => send(res, 200, { ...aws.publicState(), report: aws.report(30) && { ...aws.report(30), raw: undefined } }));
+route('PUT', '/api/aws', async (req, res) => send(res, 200, aws.update(await readBody(req))));
+route('POST', '/api/aws/sync', async (req, res) => {
+  try {
+    send(res, 200, await aws.sync());
+  } catch (e) {
+    if (e.status) throw e;
+    send(res, 200, { ...aws.publicState(), error: e.message });
+  }
+});
+
+// Ekspor biaya dengan kolom FOCUS
+route('GET', '/api/export/focus.csv', async (req, res) => {
+  send(res, 200, focus.toCsv(), { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="finops-focus.csv"' });
 });
 
 route('GET', '/api/pricing', async (req, res) => {
@@ -484,6 +504,7 @@ if (require.main === module) {
     try {
       await prepare();
       automations.tick();
+      await aws.syncIfDue();
       await store.persist();
     } catch (e) {
       console.error('Automation tick failed:', e);
