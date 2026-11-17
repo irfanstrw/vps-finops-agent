@@ -291,7 +291,7 @@ route('POST', '/api/artifacts', async (req, res) => {
   const c = findOr404(store.db.chats, chatId, 'Chat');
   const m = c.messages.find((x) => x.id === messageId && x.role === 'agent');
   if (!m) throw new HttpError(404, 'Pesan tidak ditemukan');
-  const a = { id: store.newId(), ts: Date.now(), title: `${m.reply.title} — ${new Date(m.ts).toISOString().slice(0, 16).replace('T', ' ')} UTC`, source: `chat:${c.id}`, reply: m.reply };
+  const a = { id: store.newId(), ts: Date.now(), title: `${m.reply.title}, ${new Date(m.ts).toISOString().slice(0, 16).replace('T', ' ')} UTC`, source: `chat:${c.id}`, reply: m.reply };
   store.db.artifacts.unshift(a);
   store.save();
   send(res, 201, { id: a.id });

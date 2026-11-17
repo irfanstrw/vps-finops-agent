@@ -3,7 +3,7 @@
   // ---------- utils ----------
   const $ = (s, el = document) => el.querySelector(s);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  // Escape first, then apply **bold** and `code`. Safe because markup is added after escaping.
+  // Escape dulu, baru terapkan **tebal** dan `kode`. Aman karena markup ditambahkan setelah escape.
   const md = (s) => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
   const usd = (n, d = 2) => {
     if (n == null || !Number.isFinite(n)) return '-';
@@ -39,9 +39,10 @@
   function toast(msg) {
     const t = document.createElement('div');
     t.className = 'toast';
+    t.setAttribute('role', 'status');
     t.textContent = msg;
     document.body.appendChild(t);
-    setTimeout(() => t.remove(), 3000);
+    setTimeout(() => t.remove(), 4000);
   }
 
   async function copy(text, btn) {
@@ -65,21 +66,24 @@
     const b = e.target.closest('[data-copy]');
     if (b) copy(b.closest('.copy-wrap').querySelector('pre').textContent, b);
   });
-  const codeBox = (text) => `<div class="copy-wrap"><button class="btn small" data-copy>Salin</button><pre>${esc(text)}</pre></div>`;
+  const codeBox = (text) => `<div class="copy-wrap"><button class="btn small" type="button" data-copy>Salin</button><pre>${esc(text)}</pre></div>`;
 
-  // Inline confirmation next to a button (no browser popup).
+  // Konfirmasi di tempat, tanpa popup browser.
   function confirmInline(btn, question, yesLabel, onYes) {
     if (btn.dataset.confirming) return;
     btn.dataset.confirming = '1';
     btn.classList.add('hidden');
     const box = document.createElement('span');
     box.className = 'confirm-inline';
-    box.innerHTML = `<span>${esc(question)}</span><button class="btn small danger" data-yes>${esc(yesLabel)}</button><button class="btn small" data-no>Batal</button>`;
+    box.setAttribute('role', 'group');
+    box.innerHTML = `<span>${esc(question)}</span><button class="btn small danger" type="button" data-yes>${esc(yesLabel)}</button><button class="btn small" type="button" data-no>Batal</button>`;
     btn.after(box);
+    box.querySelector('[data-no]').focus();
     const close = () => {
       box.remove();
       btn.classList.remove('hidden');
       delete btn.dataset.confirming;
+      btn.focus();
     };
     box.querySelector('[data-no]').addEventListener('click', close);
     box.querySelector('[data-yes]').addEventListener('click', async () => {
@@ -93,20 +97,43 @@
     });
   }
 
+  // ---------- dialog ----------
+  let pollTimer = null;
+  let modalOpener = null;
   function openModal(html) {
+    modalOpener = document.activeElement;
     $('#modalCard').innerHTML = html;
     $('#modal').classList.remove('hidden');
+    const first = $('#modalCard input, #modalCard select, #modalCard textarea');
+    (first || $('#modalCard')).focus();
   }
   function closeModal() {
     $('#modal').classList.add('hidden');
     $('#modalCard').innerHTML = '';
     if (pollTimer) clearInterval(pollTimer);
+    if (modalOpener && document.contains(modalOpener)) modalOpener.focus();
+    modalOpener = null;
   }
   $('#modal').addEventListener('click', (e) => {
     if (e.target.id === 'modal' || e.target.closest('[data-close]')) closeModal();
   });
+  document.addEventListener('keydown', (e) => {
+    const open = !$('#modal').classList.contains('hidden');
+    if (e.key === 'Escape') {
+      if (open) closeModal();
+      else if ($('#app').classList.contains('nav-open')) setNav(false);
+      return;
+    }
+    if (e.key === 'Tab' && open) {
+      const items = [...$('#modalCard').querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select, textarea, summary, [tabindex="0"]')];
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === $('#modalCard'))) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  });
 
-  // ---------- auth ----------
+  // ---------- masuk dan tema ----------
   function showLogin() {
     $('#app').classList.add('hidden');
     $('#login').classList.remove('hidden');
@@ -128,33 +155,49 @@
     showLogin();
   });
 
-  // theme
-  if (localStorage.theme === 'light') document.body.classList.add('light');
+  function applyTheme() {
+    const light = localStorage.theme === 'light';
+    document.body.classList.toggle('light', light);
+    $('#themeBtn').textContent = light ? 'Mode gelap' : 'Mode terang';
+  }
   $('#themeBtn').addEventListener('click', () => {
-    document.body.classList.toggle('light');
-    localStorage.theme = document.body.classList.contains('light') ? 'light' : 'dark';
+    localStorage.theme = document.body.classList.contains('light') ? 'dark' : 'light';
+    applyTheme();
+    if (location.hash.startsWith('#/overview')) router();
   });
+  applyTheme();
 
-  // ---------- shell ----------
+  // ---------- kerangka ----------
   let chats = [];
-  let pollTimer = null;
+  function setNav(open) {
+    $('#app').classList.toggle('nav-open', open);
+    $('#menuBtn').setAttribute('aria-expanded', String(open));
+    if (!open) $('#menuBtn').focus({ preventScroll: true });
+  }
+  $('#menuBtn').addEventListener('click', () => setNav(!$('#app').classList.contains('nav-open')));
+  $('#scrim').addEventListener('click', () => setNav(false));
+  $('#sidebar').addEventListener('click', (e) => {
+    if (e.target.closest('a, #newChatBtn') && $('#app').classList.contains('nav-open')) $('#app').classList.remove('nav-open');
+  });
+  $('#skip').addEventListener('click', (e) => {
+    e.preventDefault();
+    $('#main').focus();
+  });
 
   async function refreshRecent() {
     chats = await api('GET', '/api/chats');
     const cur = location.hash.match(/^#\/chat\/(\w+)/)?.[1];
     $('#recent').innerHTML = chats.length
-      ? chats.map((c) => `<a href="#/chat/${esc(c.id)}" class="${c.id === cur ? 'active' : ''}" title="${esc(c.title)}">${esc(c.title)}</a>`).join('')
-      : '<span class="muted" style="padding:0 8px">Belum ada percakapan</span>';
+      ? chats.map((c) => `<a href="#/chat/${esc(c.id)}" ${c.id === cur ? 'aria-current="page"' : ''} title="${esc(c.title)}">${esc(c.title)}</a>`).join('')
+      : '<span class="muted" style="padding:0 10px">Belum ada percakapan</span>';
     $('#clearChats').classList.toggle('hidden', !chats.length);
   }
-
-  // Delete all chats (inline confirmation, no browser popup).
   $('#clearChats').addEventListener('click', (e) =>
     confirmInline(e.currentTarget, 'Yakin ingin hapus?', 'Ya, hapus semua', async () => {
       await api('DELETE', '/api/chats');
       toast('Semua percakapan dihapus');
-      location.hash = '#/chat/new';
       if (location.hash === '#/chat/new') router();
+      else location.hash = '#/chat/new';
     })
   );
   async function refreshBalance() {
@@ -166,11 +209,17 @@
       return null;
     }
   }
+  $('#newChatBtn').addEventListener('click', () => {
+    if (location.hash === '#/chat/new') router();
+    else location.hash = '#/chat/new';
+  });
 
-  $('#newChatBtn').addEventListener('click', () => (location.hash = '#/chat/new'));
-
+  const TITLES = { chat: 'Chat', overview: 'Ringkasan', tasks: 'Tasks', automations: 'Automations', artifacts: 'Artifacts', context: 'Context files', integrations: 'Integrations' };
   function setActiveNav(name) {
-    document.querySelectorAll('.nav a').forEach((a) => a.classList.toggle('active', a.dataset.nav === name));
+    document.querySelectorAll('.nav a').forEach((a) => {
+      if (a.dataset.nav === name) a.setAttribute('aria-current', 'page');
+      else a.removeAttribute('aria-current');
+    });
   }
 
   async function router() {
@@ -178,7 +227,9 @@
     const h = location.hash || '#/chat/new';
     const [, page, id] = h.match(/^#\/(\w+)(?:\/(\w+))?/) || [];
     setActiveNav(page);
+    document.title = `${TITLES[page] || 'Chat'} | VPS FinOps Agent`;
     const main = $('#main');
+    main.innerHTML = '<div class="page"><p class="muted" role="status">Memuat…</p></div>';
     try {
       if (page === 'chat') await renderChat(main, id);
       else if (page === 'overview') await renderOverview(main);
@@ -187,22 +238,31 @@
       else if (page === 'artifacts') await renderArtifacts(main, id);
       else if (page === 'context') await renderContext(main);
       else if (page === 'integrations') await renderIntegrations(main, id);
-      else location.hash = '#/chat/new';
+      else {
+        location.hash = '#/chat/new';
+        return;
+      }
+      if (page !== 'chat') main.focus({ preventScroll: true });
     } catch (e) {
-      if (e.message !== 'Not signed in') main.innerHTML = `<div class="page"><p class="err">${esc(e.message)}</p></div>`;
+      if (e.message === 'Not signed in') return;
+      main.innerHTML = `<div class="page"><h1>Halaman tidak bisa dimuat</h1><p class="err" role="alert">${esc(e.message)}</p>
+        <p class="muted">Cek koneksi internet, lalu coba lagi.</p><button class="btn" type="button" id="retry">Coba lagi</button></div>`;
+      $('#retry').addEventListener('click', router);
     }
     refreshRecent().catch(() => {});
   }
   window.addEventListener('hashchange', router);
 
-  // ---------- reply renderer ----------
+  const pageHtml = (title, actions, body) => `<div class="page"><div class="page-head"><h1>${title}</h1>${actions || ''}</div>${body}</div>`;
+
+  // ---------- balasan agent ----------
   function renderReply(r) {
     const blocks = r.blocks.map((b) => {
       if (b.type === 'p') return `<p>${md(b.text)}</p>`;
-      if (b.type === 'h') return `<h4>${md(b.text)}</h4>`;
+      if (b.type === 'h') return `<h2>${md(b.text)}</h2>`;
       if (b.type === 'ul') return `<ul>${b.items.map((i) => `<li>${md(i)}</li>`).join('')}</ul>`;
       if (b.type === 'table')
-        return `<div class="tbl-wrap"><table><thead><tr>${b.columns.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${b.rows
+        return `<div class="tbl-wrap" tabindex="0"><table><thead><tr>${b.columns.map((c) => `<th scope="col">${esc(c)}</th>`).join('')}</tr></thead><tbody>${b.rows
           .map((row) => `<tr>${row.map((c) => `<td>${md(c)}</td>`).join('')}</tr>`)
           .join('')}</tbody></table></div>`;
       return '';
@@ -226,37 +286,41 @@
   async function renderChat(main, id) {
     let chat = null;
     if (id && id !== 'new') chat = await api('GET', `/api/chats/${encodeURIComponent(id)}`);
+    const headHtml = (c) => `<div class="chat-head"><h1>${esc(c.title)}<button class="link small" type="button" id="showId">Lihat ID</button></h1><button class="btn small danger" type="button" id="delChat">Hapus percakapan</button></div>`;
     main.innerHTML = `
-      ${chat ? `<div class="chat-head"><div>${esc(chat.title)} <span class="id" id="showId">Lihat ID</span></div><button class="btn small danger" id="delChat">Hapus percakapan</button></div>` : ''}
-      <div class="messages" id="messages"></div>
+      ${chat ? headHtml(chat) : ''}
+      <div class="messages" id="messages" aria-live="polite"></div>
       <div class="composer">
-        <form id="composer">
-          <textarea id="input" maxlength="10000" placeholder="Apa yang ingin kamu tanyakan ke FinOps Agent?"></textarea>
-          <button class="send" type="submit" title="Kirim">➤</button>
+        <form id="composer" class="composer-form">
+          <label class="sr-only" for="input">Pertanyaan untuk FinOps Agent</label>
+          <textarea id="input" maxlength="10000" placeholder="Tulis pertanyaan tentang biaya VPS"></textarea>
+          <button class="btn primary" type="submit">Kirim</button>
         </form>
-        <div class="meta"><span>Biaya dihitung dengan harga AWS us-east-1 on-demand. Periksa kembali rekomendasi sebelum dijalankan.</span><span id="count">0/10000 karakter maksimum</span></div>
+        <div class="meta"><span>Biaya dihitung dengan harga AWS us-east-1 on-demand. Periksa kembali rekomendasi sebelum dijalankan.</span><span id="count">0/10000 karakter</span></div>
       </div>`;
     const box = $('#messages');
     if (!chat || !chat.messages.length) {
-      box.innerHTML = `<div class="empty"><h2>Ada yang bisa dibantu soal <em>biaya</em>?</h2><p>Tanyakan pengeluaran, anomali, forecast, atau rightsizing untuk VPS kamu.</p>
-        <div class="suggest" style="justify-content:center">${SUGGESTIONS.map((s) => `<button class="btn small" data-suggest="${esc(s)}">${esc(s)}</button>`).join('')}</div></div>`;
+      box.innerHTML = `<div class="empty"><h1>Tanyakan biaya VPS kamu</h1><p class="muted">Agent menjawab dari data biaya yang sudah terkumpul: pengeluaran, anomali, forecast, dan rightsizing. Belum ada VPS? Tambahkan dulu di Integrations.</p>
+        <div class="suggest">${SUGGESTIONS.map((s) => `<button class="btn small" type="button" data-suggest="${esc(s)}">${esc(s)}</button>`).join('')}</div></div>`;
     } else {
       box.innerHTML = chat.messages.map((m) => msgHtml(m, chat.id)).join('');
       box.scrollTop = box.scrollHeight;
     }
-    if (chat) {
+    const bindHead = () => {
       $('#showId').addEventListener('click', (e) => (e.target.textContent = chat.id));
       $('#delChat').addEventListener('click', (e) =>
         confirmInline(e.currentTarget, 'Yakin ingin hapus?', 'Ya, hapus', async () => {
           await api('DELETE', `/api/chats/${chat.id}`);
           toast('Percakapan dihapus');
-          location.hash = '#/chat/new';
+          if (location.hash === '#/chat/new') router();
+          else location.hash = '#/chat/new';
         })
       );
-    }
+    };
+    if (chat) bindHead();
 
     const input = $('#input');
-    input.addEventListener('input', () => ($('#count').textContent = `${input.value.length}/10000 karakter maksimum`));
+    input.addEventListener('input', () => ($('#count').textContent = `${input.value.length}/10000 karakter`));
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -289,15 +353,20 @@
         if (!chat) {
           chat = await api('POST', '/api/chats');
           chat.messages = [];
+          // Percakapan baru: pasang header (judul dan tombol hapus) tanpa memuat ulang halaman.
+          main.insertAdjacentHTML('afterbegin', headHtml(chat));
+          bindHead();
         }
         if (!chat.messages.length) box.innerHTML = '';
         box.insertAdjacentHTML('beforeend', msgHtml({ role: 'user', text, ts: Date.now() }));
-        box.insertAdjacentHTML('beforeend', `<div class="msg agent" id="pending"><div class="who">FinOps Agent</div><div class="body muted">Menganalisis…</div></div>`);
+        box.insertAdjacentHTML('beforeend', '<div class="msg agent" id="pending"><div class="who">FinOps Agent</div><div class="body muted">Menganalisis…</div></div>');
         box.scrollTop = box.scrollHeight;
         const r = await api('POST', `/api/chats/${chat.id}/messages`, { text });
         chat.messages.push(r.user, r.agent);
         $('#pending').outerHTML = msgHtml(r.agent, chat.id);
         box.scrollTop = box.scrollHeight;
+        const h1 = $('.chat-head h1');
+        if (h1 && r.chat?.title) h1.firstChild.textContent = r.chat.title;
         if (!location.hash.includes(chat.id)) history.replaceState(null, '', `#/chat/${chat.id}`);
         refreshRecent();
         refreshBalance();
@@ -316,66 +385,80 @@
     if (m.role === 'user')
       return `<div class="msg user"><div class="bubble">${esc(m.text)}</div><div class="time">${esc(new Date(m.ts).toLocaleTimeString('id-ID', { hour: 'numeric', minute: '2-digit' }))}</div></div>`;
     const engine = m.engine && m.engine !== 'rule-based' ? `<span class="engine">${esc(m.engine.split(':').slice(1).join(':'))}</span>` : '';
-    return `<div class="msg agent"><div class="who">FinOps Agent ${engine}</div><div class="body">${renderReply(m.reply)}
-      ${m.id && chatId ? `<div class="msg-actions"><button class="btn small" data-save="${esc(m.id)}" data-chat="${esc(chatId)}">Simpan sebagai artifact</button></div>` : ''}</div></div>`;
+    return `<div class="msg agent"><div class="who">FinOps Agent${engine}</div><div class="body">${renderReply(m.reply)}
+      ${m.id && chatId ? `<div class="msg-actions"><button class="btn small" type="button" data-save="${esc(m.id)}" data-chat="${esc(chatId)}">Simpan sebagai artifact</button></div>` : ''}</div></div>`;
   }
 
-  // ---------- overview ----------
-  // History (solid) followed by the projected days (hatched).
+  // ---------- ringkasan ----------
+  // Riwayat (penuh) diikuti proyeksi (berpola). Data yang sama tersedia sebagai tabel di bawah grafik.
   function chartHtml(daily, projected = []) {
     const hasHistory = daily.some((d) => d.total > 0);
     const hasProj = projected.some((d) => d.total > 0);
     if (!hasHistory && !hasProj) {
-      return '<div class="chart-empty">Belum ada data biaya. Hubungkan VPS, atau tambah VPS sample AWS dan klik Aktifkan proyeksi.</div>';
+      return '<p class="chart-empty">Belum ada data biaya. Hubungkan VPS lewat Connect VPS, atau tambah VPS sample AWS lalu klik Aktifkan proyeksi.</p>';
     }
-    const all = [...(hasHistory ? daily : []), ...projected];
+    const hist = hasHistory ? daily : [];
+    const all = [...hist, ...projected];
     const max = Math.max(...all.map((d) => d.total), 0.000001);
     const keys = ['compute', 'storage', 'ipv4', 'egress'];
     const bar = (d, cls) => {
       const segs = keys.map((k) => `<div class="seg c-${k}" style="height:${(d[k] / max) * 100}%"></div>`).join('');
       return `<div class="bar ${cls}" title="${esc(d.date)}${cls ? ' (proyeksi)' : ''}: ${esc(usd(d.total))}">${segs}</div>`;
     };
-    const bars = [
-      ...(hasHistory ? daily.map((d) => bar(d, '')) : []),
-      ...(hasHistory && hasProj ? ['<div class="gap"></div>'] : []),
-      ...projected.map((d) => bar(d, 'proj')),
-    ].join('');
-    return `<div class="chart">${bars}</div>
-      <div class="chart-x"><span>${esc(all[0].date)}</span><span>maks ${esc(usd(max))}/hari</span><span>${esc(all[all.length - 1].date)}</span></div>
-      <div class="legend"><span><i class="c-compute"></i>EC2 compute</span><span><i class="c-storage"></i>EBS gp3</span><span><i class="c-ipv4"></i>Public IPv4</span><span><i class="c-egress"></i>Data transfer out</span>${hasProj ? '<span class="muted">Batang berpola = proyeksi 30 hari ke depan</span>' : ''}</div>`;
+    const bars = [...hist.map((d) => bar(d, '')), ...(hasHistory && hasProj ? ['<div class="gap"></div>'] : []), ...projected.map((d) => bar(d, 'proj'))].join('');
+    const label = `Biaya harian dari ${all[0].date} sampai ${all[all.length - 1].date}, tertinggi ${usd(max)} per hari${hasProj ? ', termasuk proyeksi' : ''}.`;
+    const rows = all
+      .map((d) => `<tr><td>${esc(d.date)}</td><td>${d.date > new Date().toISOString().slice(0, 10) ? 'proyeksi' : 'aktual'}</td><td class="num">${usd(d.compute)}</td><td class="num">${usd(d.storage)}</td><td class="num">${usd(d.ipv4)}</td><td class="num">${usd(d.egress)}</td><td class="num">${usd(d.total)}</td></tr>`)
+      .join('');
+    return `<div class="chart" role="img" aria-label="${esc(label)}">${bars}</div>
+      <div class="chart-x"><span>${esc(all[0].date)}</span><span>tertinggi ${esc(usd(max))}/hari</span><span>${esc(all[all.length - 1].date)}</span></div>
+      <div class="legend"><span><i class="c-compute"></i>EC2 compute</span><span><i class="c-storage"></i>EBS gp3</span><span><i class="c-ipv4"></i>Public IPv4</span><span><i class="c-egress"></i>Data transfer out</span>${hasProj ? '<span>Batang berpola: proyeksi</span>' : ''}</div>
+      <details class="data"><summary>Lihat data dalam tabel</summary><div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Tanggal</th><th scope="col">Jenis</th><th scope="col" class="num">EC2</th><th scope="col" class="num">EBS</th><th scope="col" class="num">IPv4</th><th scope="col" class="num">Transfer</th><th scope="col" class="num">Total</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
   }
 
   async function renderOverview(main) {
     const o = await refreshBalance();
-    if (!o) return;
+    if (!o) throw new Error('Data ringkasan tidak bisa diambil');
     const budget = o.budget?.amount || 0;
-    main.innerHTML = `<div class="page">
-      <div class="page-head"><h2>Ringkasan</h2><span class="muted">Region ${esc(o.region.name)} (${esc(o.region.code)})</span></div>
-      <div class="cards">
-        <div class="card"><div class="label">Saldo kredit</div><div class="value">${usd(o.balance.remaining)}</div><div class="sub">dari total kredit ${usd(o.balance.credit)}</div></div>
-        <div class="card"><div class="label">Bulan berjalan (${esc(o.mtd.month)})</div><div class="value">${usd(o.mtd.total)}</div></div>
-        <div class="card"><div class="label">Forecast bulan ini</div><div class="value">${usd(o.forecast.forecast)}</div><div class="sub">${budget ? `budget ${usd(budget)}` : 'budget belum diatur'}</div></div>
-        <div class="card"><div class="label">Run rate</div><div class="value">${usd(o.forecast.runRatePerHour * 24)}/hari</div><div class="sub">${usd(o.forecast.runRatePerHour, 4)}/jam</div></div>
+    const fc = o.forecast.forecast;
+    const pct = budget ? (fc / budget) * 100 : 0;
+    const budgetHtml = budget
+      ? `<div class="meter ${pct > 100 ? 'over' : ''}" role="img" aria-label="Forecast ${pct.toFixed(0)} persen dari budget"><span style="width:${Math.min(100, pct)}%"></span></div>
+         <p class="sub">${pct > 100 ? `Melebihi budget ${usd(budget)} sekitar ${usd(fc - budget)}.` : `${pct.toFixed(0)}% dari budget ${usd(budget)}.`} Sumber budget: ${esc(o.budget.source)}.</p>`
+      : '<p class="sub">Budget belum diatur. Isi di Automations (Peringatan budget bulanan) atau lewat baris <code>budget: 30</code> di Context files.</p>';
+
+    const body = `
+      <div class="summary">
+        <div class="focus">
+          <div class="label">Forecast biaya bulan ini</div>
+          <div class="big">${usd(fc)}</div>
+          ${budgetHtml}
+        </div>
+        <dl class="facts">
+          <div><dt>Saldo kredit</dt><dd>${usd(o.balance.remaining)}<small>dari total ${usd(o.balance.credit)}</small></dd></div>
+          <div><dt>Terpakai bulan ${esc(o.mtd.month)}</dt><dd>${usd(o.mtd.total)}</dd></div>
+          <div><dt>Run rate saat ini</dt><dd>${usd(o.forecast.runRatePerHour * 24)}/hari<small>${usd(o.forecast.runRatePerHour, 4)}/jam</small></dd></div>
+        </dl>
       </div>
-      <div class="section"><h3>Biaya harian: 30 hari terakhir dan proyeksi 30 hari ke depan</h3>${chartHtml(o.daily, o.projected)}</div>
-      <div class="section"><div class="page-head" style="margin:0 0 8px"><h3>VPS</h3><a class="btn small" href="#/integrations">Kelola</a></div>
-        ${o.vps.length ? vpsTable(o.vps) : '<p class="muted">Belum ada VPS yang terhubung. <a href="#/integrations">Hubungkan sekarang</a>.</p>'}</div>
-      <div class="section"><h3>Anomali, 30 hari terakhir</h3>
+      <section class="section"><h2>Biaya harian: 30 hari terakhir dan proyeksi 30 hari ke depan</h2>${chartHtml(o.daily, o.projected)}</section>
+      <section class="section"><div class="page-head" style="margin-bottom:8px"><h2 style="margin:0">VPS</h2><a href="#/integrations">Kelola di Integrations</a></div>
+        ${o.vps.length ? vpsTable(o.vps) : '<p class="muted">Belum ada VPS. Hubungkan server lewat <a href="#/integrations">Integrations</a> untuk mulai menghitung biaya.</p>'}</section>
+      <section class="section"><h2>Anomali, 30 hari terakhir</h2>
         ${o.anomalies.length
-          ? `<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>VPS</th><th>Service</th><th>Perkiraan</th><th>Aktual</th><th>Dampak</th></tr></thead><tbody>${o.anomalies
-              .map((a) => `<tr><td>${esc(a.date)}</td><td>${esc(a.vpsName)}</td><td>${esc(a.service)}</td><td>${usd(a.expected)}</td><td>${usd(a.actual)}</td><td>${usd(a.impact)}</td></tr>`)
+          ? `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Tanggal</th><th scope="col">VPS</th><th scope="col">Service</th><th scope="col" class="num">Perkiraan</th><th scope="col" class="num">Aktual</th><th scope="col" class="num">Dampak</th></tr></thead><tbody>${o.anomalies
+              .map((a) => `<tr><td>${esc(a.date)}</td><td>${esc(a.vpsName)}</td><td>${esc(a.service)}</td><td class="num">${usd(a.expected)}</td><td class="num">${usd(a.actual)}</td><td class="num">${usd(a.impact)}</td></tr>`)
               .join('')}</tbody></table></div>`
-          : '<p class="muted">Tidak ada.</p>'}
-      </div>
-      <div class="section"><h3>Top up kredit</h3>
-        <form id="topup" class="row"><input type="number" min="1" max="100000" step="1" value="100" style="width:140px" id="topupAmt"><button class="btn">Tambah kredit</button></form>
-      </div>
-    </div>`;
+          : '<p class="muted">Tidak ada lonjakan biaya yang melewati 1,5x baseline 14 hari.</p>'}
+      </section>
+      <section class="section"><h2>Tambah saldo kredit</h2>
+        <form id="topup" class="row end"><label>Jumlah (USD)<input type="number" min="1" max="100000" step="1" value="100" id="topupAmt" required></label><button class="btn" type="submit">Tambah saldo</button></form>
+      </section>`;
+    main.innerHTML = pageHtml('Ringkasan', `<span class="muted">Harga ${esc(o.region.name)} (${esc(o.region.code)})</span>`, body);
     $('#topup').addEventListener('submit', async (e) => {
       e.preventDefault();
       try {
         await api('POST', '/api/settings/topup', { amount: Number($('#topupAmt').value) });
-        toast('Kredit ditambahkan');
+        toast('Saldo ditambahkan');
         renderOverview(main);
       } catch (err) {
         toast(err.message);
@@ -383,65 +466,68 @@
     });
   }
 
+  const STATUS = { online: 'online', offline: 'offline', pending: 'menunggu agent' };
   function vpsTable(list, actions = false) {
-    return `<div class="tbl-wrap"><table><thead><tr><th>Nama</th><th>Status</th><th>Host / OS</th><th>Spesifikasi</th><th>Setara EC2</th><th>$/jam</th><th>Bulan ini</th><th>Terakhir aktif</th>${actions ? '<th></th>' : ''}</tr></thead><tbody>
+    return `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Nama</th><th scope="col">Status</th><th scope="col">Host / OS</th><th scope="col">Spesifikasi</th><th scope="col">Setara EC2</th><th scope="col" class="num">$/jam</th><th scope="col" class="num">Biaya bulan ini</th><th scope="col">Terakhir aktif</th>${actions ? '<th scope="col">Aksi</th>' : ''}</tr></thead><tbody>
       ${list
         .map((v) => {
           const l = v.last;
+          const st = v.demo ? (v.active ? ['proyeksi aktif', 'aktif'] : ['sample', 'sample']) : [STATUS[v.status] || v.status, v.status];
           return `<tr>
             <td>${esc(v.name)}</td>
-            <td><span class="status s-${esc(v.status)}">${esc(v.demo ? (v.active ? 'proyeksi aktif' : 'sample') : v.status)}</span></td>
+            <td><span class="status s-${esc(st[1])}">${esc(st[0])}</span></td>
             <td>${v.demo ? '<span class="muted">sample AWS</span>' : l ? `${esc(l.hostname)}<br><span class="muted">${esc(l.os)}</span>` : '-'}</td>
-            <td>${l ? `${esc(l.vcpu)} vCPU · ${esc(l.memTotalGiB.toFixed(1))} GiB · ${esc(l.diskTotalGB.toFixed(0))} GB` : '-'}</td>
+            <td>${l ? `${esc(l.vcpu)} vCPU, ${esc(l.memTotalGiB.toFixed(1))} GiB, ${esc(l.diskTotalGB.toFixed(0))} GB` : '-'}</td>
             <td>${v.instanceType ? `<code>${esc(v.instanceType)}</code>` : '-'}</td>
-            <td>${v.hourly ? usd(v.hourly, 4) : '-'}</td>
-            <td>${v.demo ? `<span class="muted">proyeksi</span> ${usd(v.projectedMonthly)}/bln` : usd(v.mtd)}</td>
+            <td class="num">${v.hourly ? usd(v.hourly, 4) : '-'}</td>
+            <td class="num">${v.demo ? `${usd(v.projectedMonthly)}/bln<br><span class="muted">proyeksi</span>` : usd(v.mtd)}</td>
             <td>${v.demo ? '-' : esc(ago(v.lastSeen))}</td>
-            ${actions ? `<td class="row">${
+            ${actions ? `<td><div class="row">${
               v.demo
-                ? `<button class="btn small ${v.active ? '' : 'primary'}" data-active="${esc(v.id)}" data-on="${v.active ? '0' : '1'}">${v.active ? 'Nonaktifkan proyeksi' : 'Aktifkan proyeksi'}</button>`
-                : `<button class="btn small" data-rotate="${esc(v.id)}">Token baru</button>`
-            }<button class="btn small danger" data-del="${esc(v.id)}">Hapus</button></td>` : ''}
+                ? `<button class="btn small ${v.active ? '' : 'primary'}" type="button" data-active="${esc(v.id)}" data-on="${v.active ? '0' : '1'}">${v.active ? 'Nonaktifkan proyeksi' : 'Aktifkan proyeksi'}</button>`
+                : `<button class="btn small" type="button" data-rotate="${esc(v.id)}">Token baru</button>`
+            }<button class="btn small danger" type="button" data-del="${esc(v.id)}">Hapus</button></div></td>` : ''}
           </tr>`;
         })
         .join('')}</tbody></table></div>`;
   }
 
   // ---------- tasks ----------
+  const TASK_STATUS = { ok: 'Selesai', alert: 'Perlu dicek', failed: 'Gagal' };
   async function renderTasks(main) {
     const tasks = await api('GET', '/api/tasks');
-    main.innerHTML = `<div class="page"><div class="page-head"><h2>Tasks</h2><span class="muted">Semua permintaan chat dan eksekusi automation</span></div>
-      ${tasks.length
-        ? `<div class="tbl-wrap"><table><thead><tr><th>Waktu</th><th>Task</th><th>Trigger</th><th>Status</th><th>Ringkasan</th><th></th></tr></thead><tbody>${tasks
-            .map(
-              (t) => `<tr><td>${esc(fmtTime(t.ts))}</td><td>${esc(t.name)}</td><td>${esc(t.trigger)}</td><td><span class="status s-${esc(t.status)}">${esc(t.status)}</span></td><td>${esc(t.summary)}</td>
+    const body = tasks.length
+      ? `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Waktu</th><th scope="col">Task</th><th scope="col">Pemicu</th><th scope="col">Status</th><th scope="col">Ringkasan</th><th scope="col">Hasil</th></tr></thead><tbody>${tasks
+          .map(
+            (t) => `<tr><td>${esc(fmtTime(t.ts))}</td><td>${esc(t.name)}</td><td>${esc(t.trigger)}</td><td><span class="status s-${esc(t.status)}">${esc(TASK_STATUS[t.status] || t.status)}</span></td><td>${esc(t.summary)}</td>
               <td>${t.chatId ? `<a href="#/chat/${esc(t.chatId)}">Buka chat</a>` : t.artifactId ? `<a href="#/artifacts/${esc(t.artifactId)}">Buka laporan</a>` : ''}</td></tr>`
-            )
-            .join('')}</tbody></table></div>`
-        : '<p class="muted">Belum ada task.</p>'}</div>`;
+          )
+          .join('')}</tbody></table></div>`
+      : '<p class="muted">Belum ada task. Task muncul setiap kali kamu bertanya di chat atau sebuah automation berjalan.</p>';
+    main.innerHTML = pageHtml('Tasks', '<span class="muted">Semua permintaan chat dan eksekusi automation</span>', body);
   }
 
   // ---------- automations ----------
   async function renderAutomations(main) {
     const list = await api('GET', '/api/automations');
-    main.innerHTML = `<div class="page"><div class="page-head"><h2>Automations</h2><span class="muted">Dicek setiap menit. Hasilnya masuk ke Tasks dan Artifacts.</span></div>
-      ${list
-        .map(
-          (a) => `<div class="section" data-id="${esc(a.id)}">
-          <div class="page-head" style="margin-bottom:6px"><h3>${esc(a.name)}</h3>
-            <label class="switch" title="Aktif"><input type="checkbox" data-toggle ${a.enabled ? 'checked' : ''}><span></span></label></div>
-          <p class="muted" style="margin:0 0 10px">${esc(a.description)}</p>
-          <div class="row">
-            <label>Setiap <input type="number" min="1" max="720" value="${esc(a.intervalHours)}" data-interval style="width:80px"> jam</label>
-            ${a.type === 'budget' ? `<label>Budget $<input type="number" min="0" step="1" value="${esc(a.params.monthlyBudgetUsd)}" data-budget style="width:100px">/bulan</label>` : ''}
-            <button class="btn small" data-savea>Simpan</button>
-            <button class="btn small primary" data-run>Jalankan sekarang</button>
+    const body = list
+      .map(
+        (a) => `<section class="box" data-id="${esc(a.id)}">
+          <div class="page-head"><h2 style="margin:0">${esc(a.name)}</h2>
+            <label class="row" style="gap:10px">Aktif<span class="switch"><input type="checkbox" data-toggle ${a.enabled ? 'checked' : ''}><span></span></span></label></div>
+          <p class="muted">${esc(a.description)}</p>
+          <div class="row end">
+            <label>Jalankan setiap (jam)<input type="number" min="1" max="720" value="${esc(a.intervalHours)}" data-interval style="width:120px"></label>
+            ${a.type === 'budget' ? `<label>Budget bulanan (USD)<input type="number" min="0" step="1" value="${esc(a.params.monthlyBudgetUsd)}" data-budget style="width:140px"></label>` : ''}
+            <button class="btn" type="button" data-savea>Simpan</button>
+            <button class="btn primary" type="button" data-run>Jalankan sekarang</button>
           </div>
-          <p class="muted" style="margin:10px 0 0">Terakhir dijalankan: ${esc(fmtTime(a.lastRun))}${a.lastResult ? ` · <span class="${a.lastResult.alert ? 's-alert' : 's-ok'}">${esc(a.lastResult.summary)}</span>` : ''}</p>
-        </div>`
-        )
-        .join('')}</div>`;
-    main.querySelectorAll('.section[data-id]').forEach((sec) => {
+          <p class="muted" style="margin:10px 0 0">Terakhir dijalankan: ${esc(fmtTime(a.lastRun))}${a.lastResult ? `. Hasil: <span class="${a.lastResult.alert ? 's-alert' : 's-ok'}">${esc(a.lastResult.summary)}</span>` : ''}</p>
+        </section>`
+      )
+      .join('');
+    main.innerHTML = pageHtml('Automations', '<span class="muted">Dijalankan otomatis saat jatuh tempo. Hasilnya masuk ke Tasks dan Artifacts.</span>', body);
+    main.querySelectorAll('section[data-id]').forEach((sec) => {
       const id = sec.dataset.id;
       $('[data-toggle]', sec).addEventListener('change', async (e) => {
         await api('PATCH', `/api/automations/${id}`, { enabled: e.target.checked }).catch((err) => toast(err.message));
@@ -475,9 +561,11 @@
   async function renderArtifacts(main, id) {
     if (id) {
       const a = await api('GET', `/api/artifacts/${encodeURIComponent(id)}`);
-      main.innerHTML = `<div class="page"><div class="page-head"><h2>${esc(a.title)}</h2>
-        <div class="row"><a class="btn small" href="#/artifacts">Kembali</a><button class="btn small" id="dl">Unduh JSON</button><button class="btn small danger" id="delA">Hapus</button></div></div>
-        <div class="section">${renderReply(a.reply)}</div></div>`;
+      main.innerHTML = pageHtml(
+        esc(a.title),
+        '<div class="row"><a class="btn small" href="#/artifacts" style="display:inline-flex;align-items:center;text-decoration:none">Kembali</a><button class="btn small" type="button" id="dl">Unduh JSON</button><button class="btn small danger" type="button" id="delA">Hapus</button></div>',
+        `<div class="box">${renderReply(a.reply)}</div>`
+      );
       $('#dl').addEventListener('click', () => {
         const blob = new Blob([JSON.stringify(a, null, 2)], { type: 'application/json' });
         const link = document.createElement('a');
@@ -495,30 +583,31 @@
       return;
     }
     const list = await api('GET', '/api/artifacts');
-    main.innerHTML = `<div class="page"><div class="page-head"><h2>Artifacts</h2><span class="muted">Laporan tersimpan dari chat dan automation</span></div>
-      ${list.length
-        ? `<div class="tbl-wrap"><table><thead><tr><th>Judul</th><th>Sumber</th><th>Dibuat</th></tr></thead><tbody>${list
-            .map((a) => `<tr><td><a href="#/artifacts/${esc(a.id)}">${esc(a.title)}</a></td><td>${esc(a.source.split(':')[0])}</td><td>${esc(fmtTime(a.ts))}</td></tr>`)
-            .join('')}</tbody></table></div>`
-        : '<p class="muted">Belum ada artifact. Klik "Simpan sebagai artifact" di bawah jawaban agent, atau jalankan automation.</p>'}</div>`;
+    const body = list.length
+      ? `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Judul</th><th scope="col">Sumber</th><th scope="col">Dibuat</th></tr></thead><tbody>${list
+          .map((a) => `<tr><td><a href="#/artifacts/${esc(a.id)}">${esc(a.title)}</a></td><td>${esc(a.source.split(':')[0])}</td><td>${esc(fmtTime(a.ts))}</td></tr>`)
+          .join('')}</tbody></table></div>`
+      : '<p class="muted">Belum ada artifact. Klik "Simpan sebagai artifact" di bawah jawaban agent, atau jalankan sebuah automation.</p>';
+    main.innerHTML = pageHtml('Artifacts', '<span class="muted">Laporan tersimpan dari chat dan automation</span>', body);
   }
 
   // ---------- context files ----------
   async function renderContext(main) {
     const list = await api('GET', '/api/context-files');
-    main.innerHTML = `<div class="page"><div class="page-head"><h2>Context files</h2></div>
-      <div class="section"><p class="muted" style="margin-top:0">Catatan yang bisa dipakai agent. Baris seperti <code>budget: 30</code> mengatur budget bulanan untuk forecast dan menggantikan nilai di automation budget.</p>
-        <form id="ctxForm" style="display:grid;gap:8px">
-          <input id="ctxName" placeholder="Nama, misalnya budget.txt" maxlength="200" required>
-          <textarea id="ctxContent" rows="5" placeholder="budget: 30&#10;owner: lab-ugm" required></textarea>
-          <div class="row"><button class="btn primary">Tambah</button><label class="btn small">Unggah file<input type="file" id="ctxFile" accept=".txt,.md,.json,.csv,.yaml,.yml" hidden></label></div>
+    const body = `
+      <div class="box"><p class="muted">Catatan yang bisa dipakai agent. Baris seperti <code>budget: 30</code> mengatur budget bulanan untuk forecast dan menggantikan nilai di automation budget.</p>
+        <form id="ctxForm" style="display:grid;gap:10px;max-width:640px">
+          <label>Nama file<input id="ctxName" placeholder="budget.txt" maxlength="200" required></label>
+          <label>Isi<textarea id="ctxContent" rows="5" placeholder="budget: 30" required></textarea></label>
+          <div class="row"><button class="btn primary" type="submit">Tambah context file</button><label class="btn small" style="display:inline-flex;align-items:center;color:var(--text)">Unggah dari file<input type="file" id="ctxFile" accept=".txt,.md,.json,.csv,.yaml,.yml" class="sr-only"></label></div>
         </form></div>
       ${list
         .map(
-          (f) => `<div class="section"><div class="page-head" style="margin-bottom:6px"><h3>${esc(f.name)}</h3><button class="btn small danger" data-delctx="${esc(f.id)}">Hapus</button></div>
-          <pre>${esc(f.content)}</pre></div>`
+          (f) => `<section class="box"><div class="page-head"><h2 style="margin:0">${esc(f.name)}</h2><button class="btn small danger" type="button" data-delctx="${esc(f.id)}">Hapus</button></div>
+          <pre>${esc(f.content)}</pre></section>`
         )
-        .join('')}</div>`;
+        .join('')}`;
+    main.innerHTML = pageHtml('Context files', '', body);
     $('#ctxFile').addEventListener('change', async (e) => {
       const f = e.target.files[0];
       if (!f) return;
@@ -548,64 +637,56 @@
   // ---------- integrations ----------
   async function renderIntegrations(main, tab) {
     tab = tab === 'ai' ? 'ai' : 'vps';
-    const tabs = `<div class="tabs"><a href="#/integrations/vps" class="${tab === 'vps' ? 'active' : ''}">VPS</a><a href="#/integrations/ai" class="${tab === 'ai' ? 'active' : ''}">AI Model</a></div>`;
+    const tabs = `<nav class="tabs" aria-label="Integrations"><a href="#/integrations/vps" ${tab === 'vps' ? 'aria-current="page"' : ''}>VPS</a><a href="#/integrations/ai" ${tab === 'ai' ? 'aria-current="page"' : ''}>AI Model</a></nav>`;
     if (tab === 'ai') return renderAi(main, tabs);
 
     const [list, p] = await Promise.all([api('GET', '/api/vps'), api('GET', '/api/pricing')]);
     const origin = location.origin;
     const isLocal = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
-    main.innerHTML = `<div class="page">
-      <div class="page-head"><h2>Integrations</h2>
-        <div class="row"><button class="btn" id="sampleBtn">＋ Tambah VPS sample AWS</button><button class="btn primary" id="connectBtn">＋ Connect VPS</button></div></div>
-      ${tabs}
+    const body = `${tabs}
+      <p class="muted">Agent membaca pemakaian CPU, RAM, disk, dan network dari VPS. Pemakaian itu dihitung dengan harga instance EC2 termurah yang setara di ${esc(p.region.name)}, lalu dipotong dari saldo kredit. VPS sample AWS tidak punya riwayat: biayanya berupa proyeksi, dan baru masuk forecast setelah diaktifkan.</p>
 
-      <div class="callout">Agent membaca pemakaian CPU, RAM, disk, dan network dari VPS kamu. Pemakaian itu dihitung dengan harga instance EC2 termurah yang setara di <b>${esc(p.region.name)}</b>, lalu dipotong dari saldo kredit.
-        <br><b>VPS sample AWS</b> tidak punya riwayat. Biayanya hanya berupa <b>proyeksi</b> dan baru dihitung ke forecast setelah kamu klik <b>Aktifkan proyeksi</b>.</div>
+      <section class="section"><h2>VPS terdaftar</h2>
+        ${list.length ? vpsTable(list, true) : '<p class="muted">Belum ada VPS. Klik Connect VPS untuk server asli, atau Tambah VPS sample AWS untuk melihat proyeksi biaya tipe EC2 tertentu.</p>'}</section>
 
-      <div class="section"><h3>VPS terhubung</h3>
-        ${list.length ? vpsTable(list, true) : '<p class="muted">Belum ada yang terhubung. Klik <b>Connect VPS</b> atau <b>Tambah VPS sample AWS</b>.</p>'}</div>
+      <section class="section"><h2>Cara menghubungkan VPS</h2>
+        <ol class="steps">
+          <li><b>Siapkan VPS.</b> Butuh Linux dengan systemd (Ubuntu, Debian, CentOS, Rocky), <code>bash</code>, <code>curl</code>, dan user dengan akses <code>sudo</code>. Cek di VPS:${codeBox('systemctl --version | head -1; curl --version | head -1; sudo -v && echo sudo-ok')}</li>
+          <li><b>Pastikan VPS bisa menjangkau dashboard ini.</b> Agent mengirim data keluar dari VPS ke alamat dashboard, jadi VPS tidak perlu membuka port.
+            ${isLocal ? `<div class="note">Dashboard sedang dibuka lewat <code>${esc(origin)}</code>, yang hanya bisa dijangkau dari komputer ini. Buka dashboard lewat alamat publiknya, atau atur <code>PUBLIC_URL</code> saat menjalankan server.</div>` : ''}
+            Tes dari VPS. Hasilnya harus <code>{"authed":false}</code>:${codeBox(`curl -sS ${origin}/api/me`)}
+            Kalau perintahnya timeout, cek firewall, VPN, atau proxy kampus. Kalau butuh proxy, tambahkan <code>--proxy http://proxy:port</code> di langkah 4.</li>
+          <li><b>Klik Connect VPS</b> lalu beri nama, misalnya <code>ugm-vps-1</code>. Kamu mendapat token dan perintah install. Token hanya ditampilkan sekali.</li>
+          <li><b>Jalankan perintah install di VPS lewat SSH.</b> Script akan memasang agent di <code>/usr/local/bin/finops-agent</code>, menyimpan token di <code>/etc/finops-agent.env</code> (mode 600), membuat systemd service <code>finops-agent</code> yang berjalan tanpa hak root dan hanya membaca, lalu mengirim satu laporan tes. Script bisa dibaca dulu: <a href="/agent/install.sh" target="_blank" rel="noopener">install.sh</a> dan <a href="/agent/finops-agent.sh" target="_blank" rel="noopener">finops-agent.sh</a>.</li>
+          <li><b>Tunggu status menjadi online.</b> Jendela install berubah sendiri setelah laporan pertama masuk. Biaya mulai dihitung dari laporan kedua, dengan satu laporan setiap 60 detik.</li>
+          <li><b>Tanyakan ke agent</b>, misalnya "Status VPS" atau "Forecast bulan ini".</li>
+        </ol>
+      </section>
 
-      <div class="section"><h3>Cara menghubungkan VPS, langkah demi langkah</h3>
-        <div class="steps">
-          <div class="step"><div><b>Siapkan VPS.</b> Kebutuhan: Linux dengan systemd (Ubuntu/Debian/CentOS/Rocky), <code>bash</code>, <code>curl</code>, dan user dengan akses <code>sudo</code>.
-            <p class="muted" style="margin:4px 0">Cek di VPS:</p>${codeBox('systemctl --version | head -1; curl --version | head -1; sudo -v && echo sudo-ok')}</div></div>
-          <div class="step"><div><b>Pastikan VPS bisa mengakses dashboard ini.</b> Agent mengirim data <i>keluar</i> dari VPS ke alamat dashboard, jadi VPS tidak perlu membuka port apa pun.
-            ${isLocal ? `<div class="callout">Dashboard sedang dibuka lewat <code>${esc(origin)}</code>. Alamat ini hanya bisa dijangkau dari komputer ini. Buka dashboard lewat alamat publiknya (misalnya <code>https://xxxx.trycloudflare.com</code>), atau atur <code>PUBLIC_URL</code> saat menjalankan server.</div>` : ''}
-            <p class="muted" style="margin:4px 0">Tes dari VPS. Hasilnya harus <code>{"authed":false}</code>:</p>${codeBox(`curl -sS ${origin}/api/me`)}
-            <p class="muted" style="margin:4px 0">Kalau perintahnya timeout, cek firewall, VPN, atau proxy kampus. Kalau butuh proxy, tambahkan <code>--proxy http://proxy:port</code> di langkah 4.</p></div></div>
-          <div class="step"><div><b>Klik "Connect VPS"</b> lalu beri nama (misalnya <code>ugm-vps-1</code>). Kamu akan mendapat token dan perintah install. Token hanya ditampilkan sekali.</div></div>
-          <div class="step"><div><b>SSH ke VPS lalu jalankan perintah install</b> yang muncul. Script install akan:
-            <ul class="muted" style="margin:4px 0"><li>memasang agent di <code>/usr/local/bin/finops-agent</code></li><li>menyimpan token di <code>/etc/finops-agent.env</code> (mode 600, hanya root)</li><li>membuat systemd service <code>finops-agent</code> yang berjalan tanpa hak root (DynamicUser) dan read-only</li><li>mengirim satu laporan tes, lalu menyalakan service</li></ul>
-            Kamu bisa membaca script-nya dulu: <a href="/agent/install.sh" target="_blank" rel="noopener">install.sh</a> · <a href="/agent/finops-agent.sh" target="_blank" rel="noopener">finops-agent.sh</a></div></div>
-          <div class="step"><div><b>Tunggu sampai status jadi "online"</b>. Jendela install akan berubah sendiri begitu laporan pertama masuk. Biaya mulai dihitung sejak laporan kedua (satu laporan setiap 60 detik).</div></div>
-          <div class="step"><div><b>Tanya agent</b>, misalnya "Status VPS" atau "Forecast bulan ini".</div></div>
-        </div>
-      </div>
-
-      <div class="section"><h3>Troubleshooting</h3>
-        <p class="muted" style="margin:0 0 6px">Status service dan log di VPS:</p>${codeBox('systemctl status finops-agent --no-pager\njournalctl -u finops-agent -n 50 --no-pager')}
-        <p class="muted" style="margin:10px 0 6px">Kirim satu laporan secara manual:</p>${codeBox("sudo bash -c 'set -a; . /etc/finops-agent.env; set +a; /usr/local/bin/finops-agent --once'")}
-        <ul class="muted">
-          <li><b>401 / token ditolak:</b> klik <b>Token baru</b> di samping VPS, lalu jalankan ulang perintah install yang muncul.</li>
-          <li><b>Cannot reach:</b> alamat dashboard tidak bisa dijangkau VPS. Cek firewall, VPN, atau tambahkan <code>--proxy</code>.</li>
-          <li><b>Status "offline":</b> tidak ada laporan selama 3 menit atau lebih. Jeda lebih dari 5 menit tidak ditagih.</li>
-          <li><b>URL tunnel berganti:</b> jalankan ulang perintah install dengan URL baru, atau pakai domain tetap.</li>
+      <section class="section"><h2>Kalau tidak tersambung</h2>
+        <p>Status service dan log di VPS:</p>${codeBox('systemctl status finops-agent --no-pager\njournalctl -u finops-agent -n 50 --no-pager')}
+        <p style="margin-top:12px">Kirim satu laporan secara manual:</p>${codeBox("sudo bash -c 'set -a; . /etc/finops-agent.env; set +a; /usr/local/bin/finops-agent --once'")}
+        <ul>
+          <li><b>401 atau token ditolak:</b> klik Token baru di baris VPS, lalu jalankan ulang perintah install yang muncul.</li>
+          <li><b>Cannot reach:</b> alamat dashboard tidak terjangkau dari VPS. Cek firewall, VPN, atau tambahkan <code>--proxy</code>.</li>
+          <li><b>Status offline:</b> tidak ada laporan selama 3 menit atau lebih. Jeda lebih dari 5 menit tidak dihitung biayanya.</li>
+          <li><b>Alamat dashboard berganti:</b> jalankan ulang perintah install dengan alamat baru.</li>
         </ul>
-        <p class="muted" style="margin:10px 0 6px">Uninstall agent:</p>${codeBox(`curl -fsSL ${origin}/agent/uninstall.sh | sudo bash`)}
-      </div>
+        <p>Lepas agent dari VPS:</p>${codeBox(`curl -fsSL ${origin}/agent/uninstall.sh | sudo bash`)}
+      </section>
 
-      <div class="section"><h3>Harga yang dipakai (AWS ${esc(p.region.code)}, on-demand Linux)</h3>
-        <ul class="muted" style="margin-top:0">
-          <li>EC2: instance termurah dengan vCPU dan RAM minimal sama dengan VPS, arsitektur CPU sama (x86_64 atau arm64)</li>
-          <li>EBS gp3: ${usd(p.ebsGp3)}/GB-bulan dari total ukuran disk</li>
-          <li>Public IPv4: ${usd(p.ipv4Hourly, 3)}/jam</li>
-          <li>Data transfer out: ${esc(p.egressFreeGB)} GB/bulan pertama gratis, selanjutnya ${usd(p.egressPerGB)}/GB</li>
+      <section class="section"><h2>Harga yang dipakai (AWS ${esc(p.region.code)}, Linux on-demand)</h2>
+        <ul>
+          <li>EC2: instance termurah dengan vCPU dan RAM minimal sama dengan VPS, arsitektur CPU sama (x86_64 atau arm64).</li>
+          <li>EBS gp3: ${usd(p.ebsGp3)} per GB-bulan, dari total ukuran disk.</li>
+          <li>Public IPv4: ${usd(p.ipv4Hourly, 3)} per jam.</li>
+          <li>Data transfer out: ${esc(p.egressFreeGB)} GB per bulan pertama gratis, selanjutnya ${usd(p.egressPerGB)} per GB.</li>
         </ul>
-        <details><summary class="link">Daftar harga instance</summary><div class="tbl-wrap"><table><thead><tr><th>Instance</th><th>Arch</th><th>vCPU</th><th>RAM GiB</th><th>$/jam</th><th>$/bulan</th></tr></thead><tbody>
-          ${p.instances.map((i) => `<tr><td><code>${esc(i.type)}</code></td><td>${esc(i.arch)}</td><td>${esc(i.vcpu)}</td><td>${esc(i.memGiB)}</td><td>${usd(i.hourly, 4)}</td><td>${usd(i.hourly * 730)}</td></tr>`).join('')}
+        <details><summary>Daftar harga instance</summary><div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Instance</th><th scope="col">Arsitektur</th><th scope="col" class="num">vCPU</th><th scope="col" class="num">RAM (GiB)</th><th scope="col" class="num">$/jam</th><th scope="col" class="num">$/bulan</th></tr></thead><tbody>
+          ${p.instances.map((i) => `<tr><td><code>${esc(i.type)}</code></td><td>${esc(i.arch)}</td><td class="num">${esc(i.vcpu)}</td><td class="num">${esc(i.memGiB)}</td><td class="num">${usd(i.hourly, 4)}</td><td class="num">${usd(i.hourly * 730)}</td></tr>`).join('')}
         </tbody></table></div></details>
-      </div>
-    </div>`;
+      </section>`;
+    main.innerHTML = pageHtml('Integrations', '<div class="row"><button class="btn" type="button" id="sampleBtn">Tambah VPS sample AWS</button><button class="btn primary" type="button" id="connectBtn">Connect VPS</button></div>', body);
 
     $('#connectBtn').addEventListener('click', () => connectDialog(main));
     $('#sampleBtn').addEventListener('click', () => sampleDialog(main, p, list));
@@ -649,19 +730,19 @@
     const options = Object.entries(groups)
       .map(([arch, label]) => `<optgroup label="${esc(label)}">${p.instances
         .filter((i) => i.arch === arch)
-        .map((i) => `<option value="${esc(i.type)}" ${i.type === 't3a.small' ? 'selected' : ''}>${esc(i.type)} · ${esc(i.vcpu)} vCPU · ${esc(i.memGiB)} GiB · ${usd(i.hourly, 4)}/jam</option>`)
+        .map((i) => `<option value="${esc(i.type)}" ${i.type === 't3a.small' ? 'selected' : ''}>${esc(i.type)}: ${esc(i.vcpu)} vCPU, ${esc(i.memGiB)} GiB, ${usd(i.hourly, 4)}/jam</option>`)
         .join('')}</optgroup>`)
       .join('');
     openModal(`<h2>Tambah VPS sample AWS</h2>
-      <p class="muted" style="margin-top:0">Pilih tipe EC2 untuk melihat proyeksi biayanya. VPS sample tidak punya riwayat pemakaian, dan proyeksinya baru masuk ke forecast setelah diaktifkan.</p>
+      <p class="muted">Pilih tipe EC2 untuk melihat proyeksi biayanya. VPS sample tidak punya riwayat pemakaian, dan proyeksinya baru masuk forecast setelah diaktifkan.</p>
       <form id="sForm" style="display:grid;gap:12px">
         <label>Nama<input id="sName" value="aws-sample-${n}" pattern="[A-Za-z0-9._\\-]+" maxlength="60" required></label>
         <label>Tipe EC2<select id="sType">${options}</select></label>
         <label>Disk EBS gp3 (GB)<input id="sDisk" type="number" min="8" max="16384" value="30" required></label>
-        <label class="row" style="gap:8px"><input type="checkbox" id="sActive" style="width:auto"> Langsung aktifkan proyeksi</label>
-        <div class="callout" id="sEst"></div>
-        <p class="err" id="sErr"></p>
-        <div class="row"><button class="btn primary">Tambah</button><button type="button" class="btn" data-close>Batal</button></div>
+        <label class="row" style="gap:8px;color:var(--text)"><input type="checkbox" id="sActive"> Langsung aktifkan proyeksi</label>
+        <div class="note" id="sEst" aria-live="polite"></div>
+        <p class="err" id="sErr" role="alert"></p>
+        <div class="row"><button class="btn primary" type="submit">Tambah</button><button type="button" class="btn" data-close>Batal</button></div>
       </form>`);
     const est = () => {
       const i = p.instances.find((x) => x.type === $('#sType').value);
@@ -670,7 +751,7 @@
       const ipv4 = p.ipv4Hourly * 730;
       const storage = disk * p.ebsGp3;
       $('#sEst').innerHTML = `Proyeksi per bulan (730 jam): <b>${usd(compute + ipv4 + storage)}</b>
-        <br><span class="muted">EC2 ${usd(compute)} · EBS ${usd(storage)} · IPv4 ${usd(ipv4)} · data transfer tidak termasuk</span>`;
+        <br><span class="muted">EC2 ${usd(compute)}, EBS ${usd(storage)}, IPv4 ${usd(ipv4)}. Data transfer tidak termasuk.</span>`;
     };
     $('#sType').addEventListener('change', est);
     $('#sDisk').addEventListener('input', est);
@@ -696,43 +777,42 @@
     const slotHtml = (name, title, hint) => {
       const c = s[name];
       const opts = Object.entries(s.presets).map(([k, v]) => `<option value="${esc(k)}" ${k === c.provider ? 'selected' : ''}>${esc(v.label)}</option>`).join('');
-      return `<div class="section" data-slot="${name}">
-        <div class="page-head" style="margin-bottom:6px"><h3>${esc(title)}</h3>
-          <label class="row" style="gap:8px">Aktif <span class="switch"><input type="checkbox" data-f="enabled" ${c.enabled ? 'checked' : ''}><span></span></span></label></div>
-        <p class="muted" style="margin:0 0 12px">${esc(hint)}</p>
+      const keyPh = c.keyFromEnv ? 'diatur lewat environment variable' : c.hasKey ? `tersimpan (${c.keyHint}). Isi untuk mengganti.` : 'tempel API key di sini';
+      return `<section class="box" data-slot="${name}">
+        <div class="page-head"><h2 style="margin:0">${esc(title)}</h2>
+          <label class="row" style="gap:10px">Aktif<span class="switch"><input type="checkbox" data-f="enabled" ${c.enabled ? 'checked' : ''}><span></span></span></label></div>
+        <p class="muted">${esc(hint)}</p>
         <div class="form-grid">
           <label>Provider<select data-f="provider">${opts}</select></label>
           <label>Model<input data-f="model" value="${esc(c.model)}" placeholder="nama model"></label>
           <label class="span2">Base URL<input data-f="baseUrl" value="${esc(c.baseUrl)}" placeholder="https://.../v1"></label>
-          <label class="span2">API Key<input data-f="apiKey" type="password" autocomplete="off" placeholder="${c.keyFromEnv ? 'diatur lewat environment variable' : c.hasKey ? `tersimpan (${esc(c.keyHint)}). Isi untuk mengganti.` : 'tempel API key di sini'}" ${c.keyFromEnv ? 'disabled' : ''}></label>
+          <label class="span2">API key<input data-f="apiKey" type="password" autocomplete="off" placeholder="${esc(keyPh)}" ${c.keyFromEnv ? 'disabled' : ''}></label>
         </div>
-        <div class="row" style="margin-top:12px"><button class="btn primary small" data-save>Simpan</button><button class="btn small" data-test>Tes koneksi</button>${c.hasKey && !c.keyFromEnv ? '<button class="btn small danger" data-clear>Hapus API key</button>' : ''}<span class="muted" data-result></span></div>
-      </div>`;
+        <div class="row" style="margin-top:12px"><button class="btn primary" type="button" data-save>Simpan</button><button class="btn" type="button" data-test>Tes koneksi</button>${c.hasKey && !c.keyFromEnv ? '<button class="btn danger" type="button" data-clear>Hapus API key</button>' : ''}<span data-result role="status"></span></div>
+      </section>`;
     };
-    main.innerHTML = `<div class="page">
-      <div class="page-head"><h2>Integrations</h2></div>
-      ${tabs}
+    const body = `${tabs}
       ${slotHtml('primary', 'Model utama', 'Dipakai pertama untuk setiap pertanyaan.')}
       ${slotHtml('backup', 'Model backup', 'Dipakai kalau model utama gagal. Sebaiknya dari provider lain.')}
-      <div class="section"><h3>Cara mendapatkan API key</h3>
-        <ul class="muted" style="margin-top:0">
-          <li><b>Google Gemini:</b> <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. Tersedia free tier.</li>
-          <li><b>Groq:</b> <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a>. Tersedia free tier.</li>
-          <li><b>OpenRouter:</b> <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>. Isi nama model sendiri, misalnya model berakhiran <code>:free</code>.</li>
-          <li><b>Ollama (lokal):</b> tidak perlu API key, cukup jalankan <code>ollama serve</code> di mesin yang sama dengan server.</li>
+      <section class="section"><h2>Cara mendapatkan API key</h2>
+        <ul>
+          <li><b>Google Gemini:</b> <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. Ada free tier.</li>
+          <li><b>Groq:</b> <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a>. Ada free tier.</li>
+          <li><b>OpenRouter:</b> <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>. Isi nama model sendiri, misalnya yang berakhiran <code>:free</code>.</li>
+          <li><b>Ollama (lokal):</b> tanpa API key, tetapi hanya jalan kalau server berada di komputer yang sama dengan Ollama.</li>
         </ul>
-        <p class="muted">API key disimpan di server (<code>data/db.json</code>) dan tidak pernah dikirim balik ke browser. Untuk deployment, sebaiknya pakai environment variable <code>AI_PRIMARY_API_KEY</code> dan <code>AI_BACKUP_API_KEY</code>.</p>
-      </div>
-    </div>`;
+        <p class="muted">API key disimpan di server dan tidak pernah dikirim balik ke browser. Untuk deployment, sebaiknya pakai environment variable <code>AI_PRIMARY_API_KEY</code> dan <code>AI_BACKUP_API_KEY</code>.</p>
+      </section>`;
+    main.innerHTML = pageHtml('Integrations', '', body);
 
     main.querySelectorAll('[data-slot]').forEach((sec) => {
       const name = sec.dataset.slot;
       const f = (k) => sec.querySelector(`[data-f="${k}"]`);
       const result = sec.querySelector('[data-result]');
       f('provider').addEventListener('change', () => {
-        const p = s.presets[f('provider').value];
-        f('baseUrl').value = p.baseUrl;
-        f('model').value = p.model;
+        const pr = s.presets[f('provider').value];
+        f('baseUrl').value = pr.baseUrl;
+        f('model').value = pr.model;
       });
       const save = async () => {
         const body = { enabled: f('enabled').checked, provider: f('provider').value, baseUrl: f('baseUrl').value, model: f('model').value };
@@ -755,9 +835,9 @@
         try {
           await save();
           const r = await api('POST', `/api/ai/${name}/test`);
-          result.innerHTML = r.ok ? `<span class="s-ok">✓ Terhubung (${esc(r.model)}, ${esc(r.latencyMs)} ms)</span>` : `<span class="s-alert">✗ ${esc(r.error)}</span>`;
+          result.innerHTML = r.ok ? `<span class="s-ok">Terhubung: ${esc(r.model)}, ${esc(r.latencyMs)} ms</span>` : `<span class="s-alert">Gagal: ${esc(r.error)}</span>`;
         } catch (err) {
-          result.innerHTML = `<span class="s-alert">✗ ${esc(err.message)}</span>`;
+          result.innerHTML = `<span class="s-alert">Gagal: ${esc(err.message)}</span>`;
         }
         e.target.disabled = false;
       });
@@ -775,12 +855,12 @@
 
   function connectDialog(main) {
     openModal(`<h2>Connect VPS</h2>
-      <form id="cForm" style="display:grid;gap:10px">
-        <label>Nama<input id="cName" placeholder="ugm-vps-1" pattern="[A-Za-z0-9._\\-]+" maxlength="60" required></label>
-        <p class="err" id="cErr"></p>
-        <div class="row"><button class="btn primary">Buat token</button><button type="button" class="btn" data-close>Batal</button></div>
+      <form id="cForm" style="display:grid;gap:12px">
+        <label>Nama VPS<input id="cName" placeholder="ugm-vps-1" pattern="[A-Za-z0-9._\\-]+" maxlength="60" required></label>
+        <p class="muted" style="margin:0">Huruf, angka, titik, strip, dan underscore.</p>
+        <p class="err" id="cErr" role="alert"></p>
+        <div class="row"><button class="btn primary" type="submit">Buat token</button><button type="button" class="btn" data-close>Batal</button></div>
       </form>`);
-    $('#cName').focus();
     $('#cForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       try {
@@ -796,19 +876,19 @@
     const server = r.serverUrl;
     const local = /\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(server);
     const cmd = `curl -fsSL ${server}/agent/install.sh | sudo bash -s -- --server ${server} --token ${r.token}`;
-    openModal(`<h2>Install agent di "${esc(r.vps.name)}"</h2>
-      <div class="callout">Salin token sekarang. Token <b>hanya ditampilkan sekali</b>.</div>
-      ${local ? `<div class="callout">Alamat server di perintah ini <code>${esc(server)}</code>, yang hanya bisa dipakai kalau dashboard berjalan <b>di VPS itu sendiri</b>. Kalau dashboard ada di tempat lain, buka dashboard lewat alamat publiknya dulu, lalu buat token baru.</div>` : ''}
-      <p><b>1.</b> SSH ke VPS: <code>ssh user@alamat-vps</code></p>
-      <p><b>2.</b> Jalankan perintah ini (sekali saja):</p>${codeBox(cmd)}
-      <p class="muted">Kalau VPS butuh proxy, tambahkan <code>--proxy http://proxy:port</code> di akhir perintah.</p>
-      <p><b>3.</b> Pastikan output-nya ada <code>Test report accepted.</code> dan <code>Done.</code></p>
-      <p><b>4.</b> Tunggu sampai terhubung:</p>
-      <div class="callout" id="waitBox">⏳ Menunggu laporan pertama dari agent…</div>
-      <details><summary class="link">Install manual (kalau tidak mau pakai curl | bash)</summary>
+    openModal(`<h2>Install agent di ${esc(r.vps.name)}</h2>
+      <div class="note">Salin token sekarang. Token <b>hanya ditampilkan sekali</b>.</div>
+      ${local ? `<div class="note">Alamat server di perintah ini adalah <code>${esc(server)}</code>, yang hanya bisa dipakai kalau dashboard berjalan di VPS itu sendiri. Kalau dashboard ada di tempat lain, buka dashboard lewat alamat publiknya, lalu buat token baru.</div>` : ''}
+      <ol class="steps">
+        <li>SSH ke VPS: <code>ssh user@alamat-vps</code></li>
+        <li>Jalankan perintah ini sekali saja:${codeBox(cmd)}Kalau VPS butuh proxy, tambahkan <code>--proxy http://proxy:port</code> di akhir perintah.</li>
+        <li>Pastikan output-nya memuat <code>Test report accepted.</code> dan <code>Done.</code></li>
+        <li>Tunggu sampai terhubung:<div class="note" id="waitBox" role="status">Menunggu laporan pertama dari agent…</div></li>
+      </ol>
+      <details><summary>Install manual, tanpa curl ke bash</summary>
         ${codeBox(`curl -fsSL ${server}/agent/install.sh -o install.sh\nless install.sh   # periksa dulu\nsudo bash install.sh --server ${server} --token ${r.token}`)}
       </details>
-      <div class="row" style="margin-top:14px"><button class="btn" data-close>Tutup</button></div>`);
+      <div class="row" style="margin-top:16px"><button class="btn" type="button" data-close>Tutup</button></div>`);
     if (pollTimer) clearInterval(pollTimer);
     const start = Date.now();
     pollTimer = setInterval(async () => {
@@ -818,20 +898,17 @@
         if (v && v.lastSeen && v.lastSeen > start - 5000) {
           clearInterval(pollTimer);
           const box = $('#waitBox');
-          if (box) {
-            box.className = 'callout ok';
-            box.innerHTML = `✅ Terhubung. Host <b>${esc(v.last.hostname)}</b> (${esc(v.last.vcpu)} vCPU, ${esc(v.last.memTotalGiB.toFixed(1))} GiB) setara <code>${esc(v.instanceType)}</code> seharga ${usd(v.hourly, 4)}/jam.`;
-          }
+          if (box) box.innerHTML = `<b>Terhubung.</b> Host ${esc(v.last.hostname)} (${esc(v.last.vcpu)} vCPU, ${esc(v.last.memTotalGiB.toFixed(1))} GiB) setara <code>${esc(v.instanceType)}</code> seharga ${usd(v.hourly, 4)} per jam.`;
           renderIntegrations(main, 'vps');
         }
       } catch {
-        /* ignore */
+        /* abaikan, coba lagi pada putaran berikutnya */
       }
       if (Date.now() - start > 15 * 60000) clearInterval(pollTimer);
     }, 4000);
   }
 
-  // ---------- boot ----------
+  // ---------- mulai ----------
   async function boot() {
     const me = await api('GET', '/api/me');
     if (!me.authed) return showLogin();

@@ -4,3 +4,4 @@ tools/
 .vercel/
 .env*
 *.backup.docx
+.ui-shots/
