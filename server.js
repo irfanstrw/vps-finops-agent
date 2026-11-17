@@ -5,11 +5,9 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const store = require('./lib/store');
-const costs = require('./lib/costs');
 const pricing = require('./lib/pricing');
-const agent = require('./lib/agent');
 const automations = require('./lib/automations');
-const demo = require('./lib/demo');
+const budget = require('./lib/budget');
 const llm = require('./lib/llm');
 const aws = require('./lib/aws');
 const azure = require('./lib/azure');
@@ -20,7 +18,6 @@ const focus = require('./lib/focus');
 const PORT = Number(process.env.PORT) || 8080;
 const HOST = process.env.HOST || '0.0.0.0';
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const AGENT_DIR = path.join(__dirname, 'agent');
 const MAX_BODY = 256 * 1024;
 
 // ---------- admin auth ----------
@@ -42,9 +39,6 @@ function safeEqual(a, b) {
   const ha = crypto.createHash('sha256').update(String(a)).digest();
   const hb = crypto.createHash('sha256').update(String(b)).digest();
   return crypto.timingSafeEqual(ha, hb);
-}
-function sha256(s) {
-  return crypto.createHash('sha256').update(s).digest('hex');
 }
 function cookies(req) {
   const out = {};
@@ -123,30 +117,8 @@ function clientIp(req) {
 function isHttps(req) {
   return fromLocalProxy(req) && req.headers['x-forwarded-proto'] === 'https';
 }
-function baseUrl(req) {
-  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/+$/, '');
-  return `${isHttps(req) ? 'https' : 'http'}://${req.headers.host || `localhost:${PORT}`}`;
-}
 
 // ---------- views ----------
-function vpsView(v) {
-  const t = costs.effectiveType(v);
-  const mtd = costs.monthToDate().byVps[v.id] || 0;
-  return {
-    id: v.id,
-    name: v.name,
-    demo: !!v.demo,
-    createdAt: v.createdAt,
-    lastSeen: v.lastSeen,
-    status: v.demo ? 'sample' : !v.lastSeen ? 'pending' : costs.isOnline(v) ? 'online' : 'offline',
-    active: !!v.active,
-    instanceType: t?.type || null,
-    hourly: t?.hourly || null,
-    projectedMonthly: v.demo ? demo.projectedMonthly(v.instanceType, v.last?.diskTotalGB || 0) : null,
-    last: v.last,
-    mtd,
-  };
-}
 function chatSummary(c) {
   return { id: c.id, title: c.title, createdAt: c.createdAt, updatedAt: c.updatedAt };
 }
@@ -195,22 +167,24 @@ route('GET', '/api/cron', async (req, res) => {
   send(res, 200, { ok: true });
 }, { auth: false });
 
-// overview
+// overview: semua server terdaftar dan biayanya, dari ketiga platform
 route('GET', '/api/overview', async (req, res) => {
-  const mtd = costs.monthToDate();
+  const o = cloud.overview(30);
   send(res, 200, {
-    region: pricing.REGION,
-    balance: costs.balance(),
-    forecast: costs.forecast(),
-    mtd,
-    budget: agent.budgetFromContext(),
-    daily: costs.dailySeries(costs.daysBack(30)),
-    projected: costs.projectedDaily(30),
-    cloud: cloud.overview(30),
-    cloudStatus: cloud.status(),
-    vps: store.db.vps.map(vpsView),
-    anomalies: costs.detectAnomalies({ fromDays: 30 }).slice(0, 10),
+    ...o,
+    status: cloud.status(),
+    budget: budget.status(o.totals),
+    anomalies: cloud.detectAnomalies({ fromDays: 30 }).slice(0, 10),
+    savings: cloud.savings().slice(0, 10),
   });
+});
+
+// Budget bulanan: tambah, kurangi, atau tetapkan.
+route('POST', '/api/budget', async (req, res) => {
+  const b = await readBody(req);
+  if (!['add', 'subtract', 'set'].includes(b.mode)) throw new HttpError(400, 'Mode harus add, subtract, atau set');
+  budget.change(b.mode, b.amount);
+  send(res, 200, budget.status(cloud.overview(30).totals));
 });
 
 // Sumber cloud (AWS, Azure, Google Cloud): semuanya baca-saja dan memakai pola yang sama.
@@ -219,11 +193,9 @@ const cloudMod = (id) => {
   if (!CLOUD[id]) throw new HttpError(404, 'Sumber tidak dikenal');
   return CLOUD[id];
 };
-route('GET', '/api/cloud', async (req, res) => send(res, 200, { status: cloud.status(), overview: cloud.overview(30), sources: cloud.SOURCES }));
 route('GET', '/api/cloud/:id', async (req, res, p) => {
   const m = cloudMod(p.id);
-  const s = cloud.summarize(p.id, 30);
-  send(res, 200, { ...m.publicState(), summary: s && { ...s, series: s.series.map(({ date, total }) => ({ date, total })) } });
+  send(res, 200, { ...m.publicState(), summary: cloud.summarize(p.id, 30), servers: cloud.servers(p.id) });
 });
 route('PUT', '/api/cloud/:id', async (req, res, p) => send(res, 200, cloudMod(p.id).update(await readBody(req))));
 route('POST', '/api/cloud/:id/sync', async (req, res, p) => {
@@ -236,15 +208,16 @@ route('POST', '/api/cloud/:id/sync', async (req, res, p) => {
   }
 });
 
-// Mode perencanaan: proyeksi biaya dari daftar sumber daya, tanpa server asli dan tanpa biaya.
+// Planning: proyeksi biaya dari daftar sumber daya dan rekomendasi spesifikasi, tanpa server asli.
 route('GET', '/api/plan/catalog', async (req, res) => {
   send(res, 200, {
-    kinds: Object.fromEntries(Object.entries(cloud.PLAN_ITEMS).map(([k, v]) => [k, { label: v.label, unit: v.unit }])),
-    instances: pricing.INSTANCE_TYPES,
-    region: pricing.REGION,
+    kinds: cloud.PLAN_ITEMS,
+    providers: Object.fromEntries(Object.entries(pricing.PROVIDERS).map(([k, v]) => [k, { label: v.label, product: v.product, region: v.region, diskLabel: v.diskLabel, instances: v.instances }])),
+    workloads: Object.fromEntries(Object.entries(cloud.WORKLOADS).map(([k, v]) => [k, { label: v.label, note: v.note }])),
     savedPlans: store.db.plans || [],
   });
 });
+route('POST', '/api/plan/recommend', async (req, res) => send(res, 200, cloud.recommend(await readBody(req))));
 route('POST', '/api/plan/calc', async (req, res) => {
   const b = await readBody(req);
   if (!Array.isArray(b.items) || b.items.length > 50) throw new HttpError(400, 'Daftar sumber daya harus berupa array, paling banyak 50 baris');
@@ -273,16 +246,7 @@ route('GET', '/api/export/focus.csv', async (req, res) => {
   send(res, 200, focus.toCsv(), { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="finops-focus.csv"' });
 });
 
-route('GET', '/api/pricing', async (req, res) => {
-  send(res, 200, {
-    region: pricing.REGION,
-    instances: pricing.INSTANCE_TYPES,
-    ebsGp3: pricing.EBS_GP3_USD_PER_GB_MONTH,
-    ipv4Hourly: pricing.PUBLIC_IPV4_USD_PER_HOUR,
-    egressPerGB: pricing.EGRESS_USD_PER_GB,
-    egressFreeGB: pricing.EGRESS_FREE_GB_PER_MONTH,
-  });
-});
+route('GET', '/api/pricing', async (req, res) => send(res, 200, pricing.PROVIDERS));
 
 // chats
 route('GET', '/api/chats', async (req, res) => {
@@ -335,11 +299,6 @@ route('PATCH', '/api/automations/:id', async (req, res, p) => {
     const n = Number(b.intervalHours);
     if (!Number.isFinite(n) || n < 1 || n > 720) throw new HttpError(400, 'Interval harus 1–720 jam');
     a.intervalHours = n;
-  }
-  if (b.monthlyBudgetUsd !== undefined && a.type === 'budget') {
-    const n = Number(b.monthlyBudgetUsd);
-    if (!Number.isFinite(n) || n < 0) throw new HttpError(400, 'Budget tidak boleh negatif');
-    a.params.monthlyBudgetUsd = n;
   }
   store.save();
   send(res, 200, a);
@@ -396,70 +355,6 @@ route('DELETE', '/api/context-files/:id', async (req, res, p) => {
   send(res, 200, { ok: true });
 });
 
-// settings
-// Anggaran: tambah, kurangi, atau tetapkan total. Nilai diatur manual oleh pemilik.
-route('POST', '/api/settings/topup', async (req, res) => {
-  const b = await readBody(req);
-  const n = Number(b.amount);
-  const LIM = 10000000;
-  if (b.mode === 'set') {
-    if (!Number.isFinite(n) || n < 0 || n > LIM) throw new HttpError(400, `Total anggaran harus antara 0 dan ${LIM}`);
-    return send(res, 200, costs.setBudgetTotal(n));
-  }
-  if (!Number.isFinite(n) || n === 0 || Math.abs(n) > LIM) throw new HttpError(400, `Jumlah harus bukan nol dan paling besar ${LIM}`);
-  const amount = b.mode === 'subtract' ? -Math.abs(n) : Math.abs(n);
-  store.db.settings.topups ||= [];
-  store.db.settings.topups.push({ ts: Date.now(), amount });
-  store.save();
-  send(res, 200, costs.balance());
-});
-
-// VPS integration
-route('GET', '/api/vps', async (req, res) => send(res, 200, store.db.vps.map(vpsView)));
-route('POST', '/api/vps', async (req, res) => {
-  const name = str((await readBody(req)).name, 60, 'Nama');
-  if (!/^[\w.-]+$/.test(name)) throw new HttpError(400, 'Nama hanya boleh berisi huruf, angka, titik, strip, dan underscore');
-  if (store.db.vps.some((v) => v.name.toLowerCase() === name.toLowerCase())) throw new HttpError(409, 'VPS dengan nama itu sudah ada');
-  const token = 'fop_' + crypto.randomBytes(24).toString('base64url');
-  const v = { id: store.newId(), name, createdAt: Date.now(), tokenHash: sha256(token), instanceType: null, lastSeen: null, last: null };
-  store.db.vps.push(v);
-  store.save();
-  // The token is returned once. Only its hash is stored.
-  send(res, 201, { vps: vpsView(v), token, serverUrl: baseUrl(req) });
-});
-route('POST', '/api/vps/:id/rotate', async (req, res, p) => {
-  const v = findOr404(store.db.vps, p.id, 'VPS');
-  if (v.demo) throw new HttpError(400, 'VPS sample tidak memakai agent');
-  const token = 'fop_' + crypto.randomBytes(24).toString('base64url');
-  v.tokenHash = sha256(token);
-  store.save();
-  send(res, 200, { vps: vpsView(v), token, serverUrl: baseUrl(req) });
-});
-route('DELETE', '/api/vps/:id', async (req, res, p) => {
-  findOr404(store.db.vps, p.id, 'VPS');
-  store.db.vps = store.db.vps.filter((v) => v.id !== p.id);
-  delete store.db.usage[p.id];
-  store.save();
-  send(res, 200, { ok: true });
-});
-// VPS sample AWS: pick an EC2 type; only a projected cost, no history.
-route('POST', '/api/samples', async (req, res) => {
-  const b = await readBody(req);
-  const name = str(b.name, 60, 'Nama');
-  if (!/^[\w.-]+$/.test(name)) throw new HttpError(400, 'Nama hanya boleh berisi huruf, angka, titik, strip, dan underscore');
-  send(res, 201, vpsView(demo.create({ name, instanceType: String(b.instanceType || ''), diskGB: b.diskGB })));
-});
-route('PATCH', '/api/vps/:id', async (req, res, p) => {
-  const v = findOr404(store.db.vps, p.id, 'VPS');
-  const b = await readBody(req);
-  if (typeof b.active === 'boolean') {
-    if (!v.demo) throw new HttpError(400, 'Hanya VPS sample yang bisa diaktifkan proyeksinya');
-    v.active = b.active;
-  }
-  store.save();
-  send(res, 200, vpsView(v));
-});
-
 // AI model slots
 route('GET', '/api/ai', async (req, res) => send(res, 200, llm.publicSettings()));
 route('PUT', '/api/ai/:slot', async (req, res, p) => send(res, 200, llm.update(p.slot, await readBody(req))));
@@ -471,30 +366,6 @@ route('POST', '/api/ai/:slot/test', async (req, res, p) => {
     send(res, 200, { ok: false, error: e.message });
   }
 });
-
-// agent endpoints (token auth, no session)
-route('POST', '/agent/v1/heartbeat', async (req, res) => {
-  const m = /^Bearer\s+(\S+)$/.exec(req.headers.authorization || '');
-  const v = m && store.db.vps.find((x) => x.tokenHash && x.tokenHash === sha256(m[1]));
-  if (!v) throw new HttpError(401, 'Invalid token');
-  if (v.lastSeen && Date.now() - v.lastSeen < 10000) throw new HttpError(429, 'Too frequent');
-  const body = await readBody(req);
-  send(res, 200, { ok: true, ...costs.ingest(v, body) });
-}, { auth: false });
-
-// Scripts are served with LF endings so they run on Linux even if edited on Windows.
-function agentScript(name) {
-  return fs.readFileSync(path.join(AGENT_DIR, name), 'utf8').replace(/\r\n/g, '\n');
-}
-const SH = { 'Content-Type': 'text/x-shellscript; charset=utf-8' };
-route('GET', '/agent/install.sh', async (req, res) => {
-  // Only substitute a URL that is safe to embed in a shell string.
-  const url = baseUrl(req);
-  if (!/^https?:\/\/[\w.:\-\[\]]+(\/[\w.\-\/]*)?$/.test(url)) throw new HttpError(400, 'Invalid Host header');
-  send(res, 200, agentScript('install.sh').replaceAll('__DEFAULT_SERVER__', url), SH);
-}, { auth: false });
-route('GET', '/agent/finops-agent.sh', async (req, res) => send(res, 200, agentScript('finops-agent.sh'), SH), { auth: false });
-route('GET', '/agent/uninstall.sh', async (req, res) => send(res, 200, agentScript('uninstall.sh'), SH), { auth: false });
 
 // ---------- static ----------
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
@@ -521,15 +392,27 @@ function serveStatic(req, res, pathname) {
 // ---------- request handler (shared by local server and Vercel) ----------
 async function prepare() {
   await store.load();
-  demo.migrate();
+  migrate();
   automations.migrate();
+}
+
+// Data dari versi lama (VPS lewat agent dan VPS sample) tidak dipakai lagi.
+function migrate() {
+  const db = store.db;
+  if (db.vps || db.usage || db.events || db.egressByMonth) {
+    delete db.vps;
+    delete db.usage;
+    delete db.events;
+    delete db.egressByMonth;
+    store.save();
+  }
 }
 
 async function handler(req, res) {
   const url = new URL(req.url, 'http://x');
   const pathname = url.pathname;
   try {
-    if (pathname.startsWith('/api/') || pathname.startsWith('/agent/')) {
+    if (pathname.startsWith('/api/')) {
       for (const r of routes) {
         if (r.method !== req.method) continue;
         const m = r.re.exec(pathname);
@@ -562,7 +445,7 @@ if (require.main === module) {
   const server = http.createServer(handler);
   server.listen(PORT, HOST, () => {
     console.log(`FinOps Agent running on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
-    console.log(`Pricing: AWS on-demand ${pricing.REGION.code} · storage: ${store.backend}`);
+    console.log(`Storage: ${store.backend}`);
   });
   // Background tick for automations when running as a normal server.
   setInterval(async () => {

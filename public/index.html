@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>VPS FinOps Agent</title>
+  <title>FinOps Agent</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/style.css">
 </head>
@@ -11,8 +11,8 @@
   <div id="login" class="login hidden">
     <form id="loginForm" class="login-card">
       <span id="loginLogo"></span>
-      <h1>VPS FinOps Agent</h1>
-      <p class="muted">Biaya server kamu, dihitung dengan harga AWS us-east-1 on-demand.</p>
+      <h1>FinOps Agent</h1>
+      <p class="muted">Biaya server kamu di AWS, Azure, dan Google Cloud dalam satu dashboard.</p>
       <label>Password
         <input id="password" type="password" autocomplete="current-password" required>
       </label>
@@ -25,7 +25,7 @@
     <a class="skip" href="#" id="skip">Lewati ke konten</a>
     <header class="topbar">
       <button id="menuBtn" class="btn small menu-btn" type="button" aria-expanded="false" aria-controls="sidebar">Menu</button>
-      <a class="brand" href="#/overview"><span id="brandLogo"></span>VPS FinOps Agent</a>
+      <a class="brand" href="#/overview"><span id="brandLogo"></span>FinOps Agent</a>
       <div class="top-right">
         <span id="balancePill" class="balance"></span>
         <button id="themeBtn" class="btn small" type="button">Mode terang</button>
@@ -36,9 +36,9 @@
       <button id="newChatBtn" class="btn primary wide" type="button">Percakapan baru</button>
       <nav class="nav" aria-label="Menu utama">
         <div class="nav-label">Analisis</div>
-        <a href="#/overview" data-nav="overview">Ringkasan</a>
+        <a href="#/overview" data-nav="overview">Dashboard</a>
+        <a href="#/plan" data-nav="plan">Planning</a>
         <a href="#/tasks" data-nav="tasks">Tasks</a>
-        <a href="#/plan" data-nav="plan">Perencanaan</a>
         <a href="#/automations" data-nav="automations">Automations</a>
         <div class="nav-label">Data dan pengaturan</div>
         <a href="#/artifacts" data-nav="artifacts">Artifacts</a>
@@ -47,7 +47,7 @@
       </nav>
       <div class="nav-label label-row"><span>Percakapan</span><button id="clearChats" class="link small hidden" type="button">Hapus semua</button></div>
       <div id="recent" class="recent"></div>
-      <div class="sidebar-foot">Harga: AWS us-east-1</div>
+      <div class="sidebar-foot">AWS, Azure, Google Cloud. Read-only.</div>
     </aside>
     <div id="scrim" class="scrim"></div>
     <main id="main" class="main" tabindex="-1"></main>

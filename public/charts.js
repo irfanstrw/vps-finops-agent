@@ -100,6 +100,18 @@
     return `<div class="donutbox"><svg class="donut" width="${size}" height="${size}" viewBox="0 0 140 140" role="img" aria-label="${esc(label)}">${arcs}<text class="dc" x="70" y="66" text-anchor="middle">${esc(center?.top ?? usd(total))}</text><text class="dc2" x="70" y="84" text-anchor="middle">${esc(center?.bottom ?? 'total')}</text></svg><ul class="dlegend">${legend}</ul></div>`;
   }
 
+  // Batang horizontal untuk perbandingan antar item. rows: [{label, value, color?, sub?}]; ref = garis batas (misalnya budget).
+  function hbars({ rows, label, ref, refLabel }) {
+    if (!rows.length) return '';
+    const max = Math.max(...rows.map((r) => r.value), ref || 0, 0.000001);
+    const mark = ref ? `<i class="hm" style="left:${((ref / max) * 100).toFixed(2)}%"></i>` : '';
+    const items = rows
+      .map((r, k) => `<li style="--d:${k * 40}ms"><span class="hl" title="${esc(r.label)}">${esc(r.label)}${r.sub ? `<small>${esc(r.sub)}</small>` : ''}</span><span class="ht"><span class="hb${ref && r.value > ref ? ' over' : ''}" style="width:${((r.value / max) * 100).toFixed(2)}%;${r.color ? `background:${r.color}` : ''}"></span>${mark}</span><b>${esc(usd(r.value))}</b></li>`)
+      .join('');
+    const cap = ref ? `<p class="hcap"><i class="hm-key"></i>${esc(refLabel || `batas ${usd(ref)}`)}</p>` : '';
+    return `<div class="hbars" role="img" aria-label="${esc(label)}"><ul>${items}</ul>${cap}</div>`;
+  }
+
   // Pasang tooltip pada semua grafik di dalam root. Aman dipanggil berulang.
   function bind(root) {
     root.querySelectorAll('.chartbox').forEach((box) => {
@@ -157,5 +169,5 @@
     });
   }
 
-  window.Charts = { bars, line, donut, bind, usd, short };
+  window.Charts = { bars, line, donut, hbars, bind, usd, short };
 })();

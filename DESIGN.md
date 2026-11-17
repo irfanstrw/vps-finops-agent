@@ -1,10 +1,10 @@
 # DESIGN.md
 
-Arahan desain untuk VPS FinOps Agent. Isinya dicatat dari permintaan pemilik proyek di chat. Agen hanya memformat, tidak menambah arah baru.
+Arahan desain untuk FinOps Agent. Isinya dicatat dari permintaan pemilik proyek di chat. Agen hanya memformat, tidak menambah arah baru.
 
 ## Identitas
 
-Dashboard FinOps untuk VPS milik sendiri. Dipakai mahasiswa dan dosen untuk memeriksa biaya, forecast, anomali, dan rekomendasi rightsizing. Ini alat kerja, bukan halaman pemasaran, jadi tidak ada hero, testimoni, atau angka hiasan.
+Dashboard FinOps untuk server terdaftar di AWS, Azure, dan Google Cloud. Dipakai mahasiswa dan dosen untuk memeriksa biaya, forecast, lonjakan, peluang hemat, dan rekomendasi spesifikasi. Teks UI hanya menampilkan yang perlu diketahui pengguna. Logo platform memakai bentuk resmi dengan warna palet web (tugas kuliah, non-komersial). Ini alat kerja, bukan halaman pemasaran, jadi tidak ada hero, testimoni, atau angka hiasan.
 
 ## Arahan dari pemilik
 
@@ -43,4 +43,5 @@ ENERGY 1 / RHYTHM 2 / MOTION 1
 
 - Ringkasan: angka forecast bulan ini beserta posisinya terhadap budget.
 - Chat: jawaban agent terbaru.
-- Integrations: tombol Connect VPS dan langkah koneksi.
+- Integrations: kredensial read-only per platform dan daftar server terdaftar.
+- Planning: form budget dan kebutuhan, hasil rekomendasi spesifikasi.
