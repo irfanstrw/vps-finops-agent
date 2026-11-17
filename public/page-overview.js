@@ -14,6 +14,9 @@
   const state = { range: 30, filter: 'all' };
   const short = (d) => d.slice(5);
 
+  const BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+  const monthName = (ym) => BULAN[Number(String(ym).slice(5, 7)) - 1] || ym;
+
   function headline(o) {
     const b = o.budget;
     const t = o.totals;
@@ -24,13 +27,14 @@
       : '<p class="sub">Budget belum diatur. Atur di bagian Budget di bawah.</p>';
     return `<div class="summary">
       <div class="focus">
-        <div class="label">Perkiraan biaya server sampai akhir bulan</div>
+        <div class="label">Total bill bulan ${esc(monthName(o.month))} (perkiraan)</div>
         <div class="big">${usd(t.forecast)}</div>
         ${meter}
       </div>
       <dl class="facts">
-        <div><dt>Terpakai bulan ini</dt><dd>${usd(t.mtd)}${t.credit > 0 ? `<small>${usd(t.credit)} ditutup credits, dibayar ${usd(Math.max(0, t.mtd - t.credit))}</small>` : ''}</dd></div>
-        <div><dt>Rata-rata per hari</dt><dd>${usd(t.perDay)}<small>${o.daysLeft} hari lagi sampai akhir bulan</small></dd></div>
+        <div><dt>Biaya per hari</dt><dd>${usd(t.perDay)}<small>${IDS.some((id) => o.platforms[id].billed && o.platforms[id].perDay !== o.platforms[id].estDaily) ? 'rata-rata bills 7 hari terakhir' : 'dari harga server saat ini'}</small></dd></div>
+        <div><dt>Sudah terpakai</dt><dd>${usd(t.mtd)}<small>${t.credit > 0 ? `${usd(t.credit)} ditutup credits, dibayar ${usd(Math.max(0, t.mtd - t.credit))}` : `1 sampai ${new Date().getUTCDate()} ${esc(monthName(o.month))}`}</small></dd></div>
+        <div><dt>Sisa bulan ini</dt><dd>${usd(t.remaining)}<small>${o.daysLeft} hari x ${usd(t.perDay)}</small></dd></div>
         <div><dt>Server running</dt><dd>${t.running} dari ${t.servers}</dd></div>
         <div><dt>Budget tersisa</dt><dd>${usd(b.remaining)}<small>dari ${usd(b.amount)} per bulan</small></dd></div>
       </dl>
@@ -119,10 +123,10 @@
   function serverTable(o) {
     const list = o.servers.filter((s) => state.filter === 'all' || s.provider === state.filter).sort((a, b) => b.monthly - a.monthly);
     if (!list.length) return '<p class="muted">Tidak ada server untuk filter ini.</p>';
-    return `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Server</th><th scope="col">Platform</th><th scope="col">Lokasi</th><th scope="col">Tipe</th><th scope="col">Spesifikasi</th><th scope="col">Status</th><th scope="col" class="num">Compute</th><th scope="col" class="num">Disk</th><th scope="col" class="num">IPv4</th><th scope="col" class="num">Per bulan</th></tr></thead><tbody>${list
+    return `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Server</th><th scope="col">Platform</th><th scope="col">Lokasi</th><th scope="col">Tipe</th><th scope="col">Spesifikasi</th><th scope="col">Status</th><th scope="col" class="num">Compute</th><th scope="col" class="num">Disk</th><th scope="col" class="num">IPv4</th><th scope="col" class="num">Per hari</th><th scope="col" class="num">Per bulan penuh</th></tr></thead><tbody>${list
       .map((s) => `<tr><td>${esc(s.name)}</td><td><span class="cell-logo">${L.badge(s.provider, 'logo xs')}${esc(o.platforms[s.provider].label)}</span></td><td>${esc(s.location)}</td><td><code>${esc(s.type)}</code>${s.known ? '' : '<br><span class="muted">tipe tidak ada di daftar harga</span>'}</td>
         <td>${s.vcpu ? `${s.vcpu} vCPU, ${s.memGiB} GiB, ` : ''}${s.diskGB} GB disk</td><td><span class="status s-${esc(s.state)}">${esc(STATE[s.state] || s.state)}</span></td>
-        <td class="num">${s.parts.compute ? `${usd(s.parts.compute)}<br><span class="muted">${usd(s.hourly, 4)}/jam</span>` : '<span class="muted">$0, stopped</span>'}</td><td class="num">${usd(s.parts.disk)}<br><span class="muted">${s.diskGB} GB</span></td><td class="num">${usd(s.parts.ip)}</td><td class="num"><b>${usd(s.monthly)}</b></td></tr>`)
+        <td class="num">${s.parts.compute ? `${usd(s.parts.compute)}<br><span class="muted">${usd(s.hourly, 4)}/jam</span>` : '<span class="muted">$0, stopped</span>'}</td><td class="num">${usd(s.parts.disk)}<br><span class="muted">${s.diskGB} GB</span></td><td class="num">${usd(s.parts.ip)}</td><td class="num"><b>${usd((s.monthly / 730) * 24)}</b></td><td class="num">${usd(s.monthly)}</td></tr>`)
       .join('')}</tbody></table></div>`;
   }
 
