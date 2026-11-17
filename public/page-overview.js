@@ -30,7 +30,7 @@
       </div>
       <dl class="facts">
         <div><dt>Terpakai bulan ini</dt><dd>${usd(t.mtd)}</dd></div>
-        <div><dt>Laju per hari</dt><dd>${usd(t.perDay)}<small>${o.daysLeft} hari tersisa</small></dd></div>
+        <div><dt>Rata-rata per hari</dt><dd>${usd(t.perDay)}<small>${o.daysLeft} hari lagi sampai akhir bulan</small></dd></div>
         <div><dt>Server running</dt><dd>${t.running} dari ${t.servers}</dd></div>
         <div><dt>Budget tersisa</dt><dd>${usd(b.remaining)}<small>dari ${usd(b.amount)} per bulan</small></dd></div>
       </dl>
@@ -46,16 +46,18 @@
     }).join('')}</div>`;
   }
 
-  // Grafik 1: biaya harian per platform plus perkiraan sampai akhir bulan.
+  // Grafik 1: biaya harian per platform dan totalnya. Garis putus-putus setelah "hari ini" adalah perkiraan.
   function dailyChart(o) {
     const hist = o.series.slice(-state.range).map((r) => ({ ...r, label: short(r.date) }));
     const proj = o.projection.map((r) => ({ ...r, label: short(r.date) }));
     const rows = [...hist, ...proj];
-    const series = IDS.filter((id) => rows.some((r) => r[id] > 0)).map((id) => ({ key: id, label: o.platforms[id].label, color: COLOR[id] }));
-    if (!series.length) return '<p class="chart-empty">Belum ada biaya harian.</p>';
+    const active = IDS.filter((id) => rows.some((r) => r[id] > 0));
+    if (!active.length) return '<p class="chart-empty">Belum ada biaya harian.</p>';
+    const series = active.map((id) => ({ key: id, label: o.platforms[id].label, color: COLOR[id], area: active.length === 1 }));
+    if (active.length > 1) series.unshift({ key: 'total', label: 'Total', color: 'var(--text)', bold: true, area: false });
     const legend = series.map((s) => `<span><i style="background:${s.color}"></i>${esc(s.label)}</span>`).join('');
-    return `${C.bars({ rows, series, label: `Biaya harian ${state.range} hari terakhir per platform dan perkiraan sampai akhir bulan`, height: 200 })}
-      <div class="legend">${legend}<span>Batang pudar: perkiraan</span></div>`;
+    return `${C.lines({ rows, series, label: `Biaya harian ${state.range} hari terakhir dan perkiraan sampai akhir bulan`, height: 230 })}
+      <div class="lc-legend">${legend}${proj.length ? '<span><i class="dash"></i>Perkiraan</span>' : ''}</div>`;
   }
 
   // Grafik 2: kumulatif bulan berjalan dan perkiraannya terhadap budget.
@@ -76,7 +78,8 @@
       rows.push({ date: short(r.date), v: acc, proj: true });
     }
     if (rows.length < 2) return '<p class="chart-empty">Belum cukup data bulan ini.</p>';
-    return C.line({ rows, label: 'Biaya kumulatif bulan ini dan perkiraannya dibanding budget', height: 200, refLine: o.budget.amount || 0, refLabel: o.budget.amount ? `budget ${usd(o.budget.amount)}` : '' });
+    return `${C.line({ rows, label: 'Biaya kumulatif bulan ini dan perkiraannya dibanding budget', height: 200, refLine: o.budget.amount || 0, refLabel: o.budget.amount ? `Budget ${usd(o.budget.amount)}` : '', valueLabel: 'Total sejak awal bulan' })}
+      <div class="lc-legend"><span><i style="background:var(--s1)"></i>Terpakai</span><span><i class="dash"></i>Perkiraan</span>${o.budget.amount ? '<span><i style="background:var(--bad)"></i>Budget</span>' : ''}</div>`;
   }
 
   // Grafik 3: porsi perkiraan akhir bulan per platform.
@@ -166,7 +169,8 @@
     if (!o) throw new Error('Data dashboard tidak bisa diambil');
     const live = `<span class="muted live">Diperbarui ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>`;
     if (!o.hasData) {
-      main.innerHTML = pageHtml('Dashboard', '', `${onboarding()}${platformCards(o)}${budgetSection(o)}`);
+      main.innerHTML = pageHtml('Dashboard', refreshBar(live), `${onboarding()}${platformCards(o)}${budgetSection(o)}`);
+      bindRefresh(main);
       bindBudget(main);
       return;
     }
@@ -174,7 +178,7 @@
     const filters = `<option value="all">Semua platform</option>${IDS.map((id) => `<option value="${id}" ${state.filter === id ? 'selected' : ''}>${esc(o.platforms[id].label)}</option>`).join('')}`;
     const body = `${headline(o)}${platformCards(o)}
       <div class="chart-grid">
-        <section class="card wide"><div class="card-head"><h2>Biaya harian dan perkiraan</h2><div class="seg-ctl" role="group" aria-label="Rentang waktu">${ranges}</div></div><div id="dailyHost">${dailyChart(o)}</div></section>
+        <section class="card wide"><div class="card-head"><h2>Biaya harian</h2><div class="seg-ctl" role="group" aria-label="Rentang waktu">${ranges}</div></div><div id="dailyHost">${dailyChart(o)}</div></section>
         <section class="card"><div class="card-head"><h2>Kumulatif bulan ini vs budget</h2></div>${cumulativeChart(o)}</section>
         <section class="card"><div class="card-head"><h2>Porsi per platform</h2></div>${shareChart(o)}</section>
         <section class="card wide"><div class="card-head"><h2>Server dengan biaya terbesar</h2><span class="muted">estimasi per bulan</span></div>${topChart(o)}</section>
@@ -184,7 +188,8 @@
       ${savingsSection(o)}
       ${anomalySection(o)}
       ${budgetSection(o)}`;
-    main.innerHTML = pageHtml('Dashboard', `<div class="row">${live}<a class="btn small" href="/api/export/focus.csv" download style="display:inline-flex;align-items:center;text-decoration:none">Unduh bills (FOCUS CSV)</a></div>`, body);
+    main.innerHTML = pageHtml('Dashboard', refreshBar(live), body);
+    bindRefresh(main);
     C.bind(main);
     main.querySelectorAll('[data-range]').forEach((b) =>
       b.addEventListener('click', () => {
@@ -199,6 +204,24 @@
       $('#srvHost').innerHTML = serverTable(o);
     });
     bindBudget(main);
+  }
+
+  const refreshBar = (live) => `<div class="row">${live}<button class="btn small" type="button" id="refreshBtn">Refresh</button></div>`;
+
+  // Refresh: baca ulang status server dan bills dari semua platform yang tersambung, lalu gambar ulang.
+  function bindRefresh(main) {
+    $('#refreshBtn').addEventListener('click', async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true;
+      b.textContent = 'Memperbarui...';
+      const st = await api('GET', '/api/overview').then((x) => x.status).catch(() => ({}));
+      await Promise.all(IDS.filter((id) => st[id]?.configured).map((id) => api('POST', `/api/cloud/${id}/sync`).catch(() => null)));
+      const y = main.querySelector('.page')?.scrollTop || 0;
+      await render(main).catch((err) => toast(err.message));
+      const p = main.querySelector('.page');
+      if (p) p.scrollTop = y;
+      toast('Data diperbarui');
+    });
   }
 
   function bindBudget(main) {

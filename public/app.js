@@ -236,7 +236,7 @@
     else location.hash = '#/chat/new';
   });
 
-  const TITLES = { chat: 'Chat', overview: 'Dashboard', plan: 'Planning', tasks: 'Tasks', automations: 'Automations', artifacts: 'Artifacts', context: 'Context files', integrations: 'Integrations' };
+  const TITLES = { chat: 'Chat', overview: 'Dashboard', plan: 'Planning', automations: 'Automations', artifacts: 'Artifacts', context: 'Context files', integrations: 'Integrations' };
   function setActiveNav(name) {
     document.querySelectorAll('.nav a').forEach((a) => {
       if (a.dataset.nav === name) a.setAttribute('aria-current', 'page');
@@ -249,14 +249,13 @@
     const h = location.hash || '#/chat/new';
     const [, page, id] = h.match(/^#\/(\w+)(?:\/(\w+))?/) || [];
     setActiveNav(page);
-    document.title = `${TITLES[page] || 'Chat'} | FinOps Agent`;
+    document.title = `${TITLES[page] || 'Chat'} | VPS FinOps Agent`;
     const main = $('#main');
     main.innerHTML = '<div class="page"><p class="muted" role="status">Memuat…</p></div>';
     try {
       if (page === 'chat') await renderChat(main, id);
       else if (window.Pages?.[page]) await window.Pages[page](main, id);
       else if (page === 'overview') await renderOverview(main);
-      else if (page === 'tasks') await renderTasks(main);
       else if (page === 'automations') await renderAutomations(main);
       else if (page === 'artifacts') await renderArtifacts(main, id);
       else if (page === 'context') await renderContext(main);
@@ -290,7 +289,7 @@
         const C = window.Charts;
         let g = '';
         if (b.kind === 'bars') g = C.bars({ rows: b.rows.map((r) => ({ ...r, label: String(r.date).slice(5) })), series: b.series, label: b.title, height: 170 });
-        else if (b.kind === 'line') g = C.line({ rows: b.rows.map((r) => ({ ...r })), label: b.title, height: 170, refLine: b.ref?.value, refLabel: b.ref?.label });
+        else if (b.kind === 'line') g = C.line({ rows: b.rows.map((r) => ({ ...r, label: String(r.date).slice(5) })), label: b.title, height: 180, refLine: b.ref?.value, refLabel: b.ref?.label ? `Budget ${b.ref.label.replace(/^budget /, '')}` : '', valueLabel: 'Total sejak awal bulan' });
         else if (b.kind === 'donut') g = C.donut({ slices: b.slices, label: b.title, size: 130 });
         else if (b.kind === 'hbars') g = C.hbars({ rows: b.rows, label: b.title, ref: b.ref, refLabel: b.ref ? `budget ${usd(b.ref)}` : '' });
         return g ? `<figure class="blk"><figcaption class="blk-title">${esc(b.title)}</figcaption>${g}</figure>` : '';
@@ -424,21 +423,6 @@
       ${m.id && chatId ? `<div class="msg-actions"><button class="btn small" type="button" data-save="${esc(m.id)}" data-chat="${esc(chatId)}">Simpan sebagai artifact</button></div>` : ''}</div></div>`;
   }
 
-  // ---------- tasks ----------
-  const TASK_STATUS = { ok: 'Selesai', alert: 'Perlu dicek', failed: 'Gagal' };
-  async function renderTasks(main) {
-    const tasks = await api('GET', '/api/tasks');
-    const body = tasks.length
-      ? `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Waktu</th><th scope="col">Task</th><th scope="col">Pemicu</th><th scope="col">Status</th><th scope="col">Ringkasan</th><th scope="col">Hasil</th></tr></thead><tbody>${tasks
-          .map(
-            (t) => `<tr><td>${esc(fmtTime(t.ts))}</td><td>${esc(t.name)}</td><td>${esc(t.trigger)}</td><td><span class="status s-${esc(t.status)}">${esc(TASK_STATUS[t.status] || t.status)}</span></td><td>${esc(t.summary)}</td>
-              <td>${t.chatId ? `<a href="#/chat/${esc(t.chatId)}">Buka chat</a>` : t.artifactId ? `<a href="#/artifacts/${esc(t.artifactId)}">Buka laporan</a>` : ''}</td></tr>`
-          )
-          .join('')}</tbody></table></div>`
-      : '<p class="muted">Belum ada task. Task muncul setiap kali kamu bertanya di chat atau sebuah automation berjalan.</p>';
-    main.innerHTML = pageHtml('Tasks', '<span class="muted">Semua permintaan chat dan eksekusi automation</span>', body);
-  }
-
   // ---------- automations ----------
   async function renderAutomations(main) {
     const list = await api('GET', '/api/automations');
@@ -458,7 +442,7 @@
         </section>`
       )
       .join('');
-    main.innerHTML = pageHtml('Automations', '<span class="muted">Dijalankan otomatis saat jatuh tempo. Hasilnya masuk ke Tasks dan Artifacts.</span>', body);
+    main.innerHTML = pageHtml('Automations', '<span class="muted">Dijalankan otomatis saat jatuh tempo. Hasilnya tersimpan di Artifacts.</span>', body);
     main.querySelectorAll('section[data-id]').forEach((sec) => {
       const id = sec.dataset.id;
       $('[data-toggle]', sec).addEventListener('change', async (e) => {

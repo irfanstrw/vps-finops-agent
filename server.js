@@ -13,7 +13,6 @@ const aws = require('./lib/aws');
 const azure = require('./lib/azure');
 const gcp = require('./lib/gcp');
 const cloud = require('./lib/cloud');
-const focus = require('./lib/focus');
 
 const PORT = Number(process.env.PORT) || 8080;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -261,11 +260,6 @@ route('DELETE', '/api/plan/:id', async (req, res, p) => {
   send(res, 200, { ok: true });
 });
 
-// Ekspor biaya dengan kolom FOCUS
-route('GET', '/api/export/focus.csv', async (req, res) => {
-  send(res, 200, focus.toCsv(), { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="finops-focus.csv"' });
-});
-
 route('GET', '/api/pricing', async (req, res) => send(res, 200, pricing.PROVIDERS));
 
 // chats
@@ -301,13 +295,9 @@ route('POST', '/api/chats/:id/messages', async (req, res, p) => {
   c.messages.push(msg);
   if (c.title === 'Percakapan baru' || c.title === 'New chat') c.title = reply.title;
   c.updatedAt = Date.now();
-  automations.addTask({ name: reply.title, kind: 'chat', trigger: 'chat', status: 'ok', summary: text.slice(0, 140), chatId: c.id, durationMs: Date.now() - started });
   store.save();
   send(res, 200, { chat: chatSummary(c), user: c.messages[c.messages.length - 2], agent: msg });
 });
-
-// tasks
-route('GET', '/api/tasks', async (req, res) => send(res, 200, store.db.tasks || []));
 
 // automations
 route('GET', '/api/automations', async (req, res) => send(res, 200, store.db.automations));
@@ -419,11 +409,12 @@ async function prepare() {
 // Data dari versi lama (VPS lewat agent dan VPS sample) tidak dipakai lagi.
 function migrate() {
   const db = store.db;
-  if (db.vps || db.usage || db.events || db.egressByMonth) {
+  if (db.vps || db.usage || db.events || db.egressByMonth || db.tasks) {
     delete db.vps;
     delete db.usage;
     delete db.events;
     delete db.egressByMonth;
+    delete db.tasks;
     store.save();
   }
 }

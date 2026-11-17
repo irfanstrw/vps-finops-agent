@@ -16,7 +16,7 @@
   let timer = null;
   let lastCalc = null;
   let tab = 'recommend';
-  const form = { budget: 25, workload: 'webapp', visits: 20000, storageGB: 10, ha: false, growth: false, providers: [...IDS], arch: 'any' };
+  const form = { budget: 25, workload: 'webapp', visits: 20000, storageGB: 10, providers: [...IDS], arch: 'any' };
 
   const DEFAULT_TYPE = { aws: 't3a.small', azure: 'Standard_B1ms', gcp: 'e2-small' };
 
@@ -31,10 +31,6 @@
       <label>Data yang disimpan (GB)<input type="number" id="rStore" min="0" step="1" value="${esc(form.storageGB)}"></label>
       <label>Arsitektur CPU<select id="rArch"><option value="any" ${form.arch === 'any' ? 'selected' : ''}>Bebas</option><option value="x86_64" ${form.arch === 'x86_64' ? 'selected' : ''}>x86_64 (Intel/AMD)</option><option value="arm64" ${form.arch === 'arm64' ? 'selected' : ''}>arm64 (lebih hemat, cek kompatibilitas)</option></select></label>
       <fieldset class="span2"><legend>Platform yang dipertimbangkan</legend><div class="row">${prov}</div></fieldset>
-      <fieldset class="span2"><legend>Kebutuhan tambahan</legend><div class="row">
-        <label class="chk"><input type="checkbox" id="rHa" ${form.ha ? 'checked' : ''}> Tetap jalan kalau satu server mati (2 server dan load balancer)</label>
-        <label class="chk"><input type="checkbox" id="rGrow" ${form.growth ? 'checked' : ''}> Sisakan ruang untuk tumbuh</label>
-      </div></fieldset>
       <div class="span2 row"><button class="btn primary" type="submit">Cari spesifikasi</button><span class="muted" id="rNote">${esc(cat.workloads[form.workload].note)}</span></div>
     </form>`;
   }
@@ -48,9 +44,9 @@
          <ul>${r.reasons.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
          <div class="row"><button class="btn" type="button" data-use="best">Pakai di Susun sendiri</button></div>`
       : `<div class="note"><b>Budget ${usd(r.budget)} belum cukup.</b> Pilihan terdekat butuh ${usd(r.options[0]?.monthly || 0)} per bulan, kurang ${usd(r.cheapestGap || 0)}. Turunkan kebutuhan atau naikkan budget.</div>`;
-    const chart = C.hbars({ rows: r.options.slice(0, 8).map((o) => ({ label: `${o.label} ${o.type}`, sub: `${o.vcpu} vCPU, ${o.memGiB} GiB${o.tier === 'cadangan' ? ', ruang tumbuh' : ''}`, value: o.monthly, color: COLOR[o.provider] })), label: 'Perbandingan biaya per bulan terhadap budget', ref: r.budget, refLabel: `budget ${usd(r.budget)}` });
-    const table = `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Platform</th><th scope="col">Tipe</th><th scope="col">Spesifikasi</th><th scope="col" class="num">Server</th><th scope="col" class="num">Disk dan IP</th><th scope="col" class="num">Transfer dan LB</th><th scope="col" class="num">Per bulan</th><th scope="col">Budget</th><th scope="col"><span class="sr-only">Aksi</span></th></tr></thead><tbody>${r.options
-      .map((o, i) => `<tr><td><span class="cell-logo">${L.badge(o.provider, 'logo xs')}${esc(o.label)}</span></td><td><code>${esc(o.type)}</code>${o.count > 1 ? ` x ${o.count}` : ''}</td><td>${o.vcpu} vCPU, ${o.memGiB} GiB, ${esc(o.arch)}</td><td class="num">${usd(o.parts.server)}</td><td class="num">${usd(o.parts.disk + o.parts.ip)}</td><td class="num">${usd(o.parts.egress + o.parts.lb)}</td><td class="num"><b>${usd(o.monthly)}</b></td><td>${o.fits ? '<span class="s-ok">Sesuai budget</span>' : '<span class="s-alert">Melebihi budget</span>'}</td><td><button class="btn small" type="button" data-use="${i}">Pakai</button></td></tr>`)
+    const chart = C.hbars({ rows: r.options.slice(0, 8).map((o) => ({ label: `${o.label} ${o.type}`, sub: `${o.vcpu} vCPU, ${o.memGiB} GiB`, value: o.monthly, color: COLOR[o.provider] })), label: 'Perbandingan biaya per bulan terhadap budget', ref: r.budget, refLabel: `budget ${usd(r.budget)}` });
+    const table = `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Platform</th><th scope="col">Tipe</th><th scope="col">Spesifikasi</th><th scope="col" class="num">Server</th><th scope="col" class="num">Disk dan IP</th><th scope="col" class="num">Data transfer</th><th scope="col" class="num">Per bulan</th><th scope="col">Budget</th><th scope="col"><span class="sr-only">Aksi</span></th></tr></thead><tbody>${r.options
+      .map((o, i) => `<tr><td><span class="cell-logo">${L.badge(o.provider, 'logo xs')}${esc(o.label)}</span></td><td><code>${esc(o.type)}</code>${o.count > 1 ? ` x ${o.count}` : ''}</td><td>${o.vcpu} vCPU, ${o.memGiB} GiB, ${esc(o.arch)}</td><td class="num">${usd(o.parts.server)}</td><td class="num">${usd(o.parts.disk + o.parts.ip)}</td><td class="num">${usd(o.parts.egress)}</td><td class="num"><b>${usd(o.monthly)}</b></td><td>${o.fits ? '<span class="s-ok">Sesuai budget</span>' : '<span class="s-alert">Melebihi budget</span>'}</td><td><button class="btn small" type="button" data-use="${i}">Pakai</button></td></tr>`)
       .join('')}</tbody></table></div>`;
     return `<h2>Kebutuhan</h2>${need}<div class="rec-grid"><div class="card">${best}</div><div class="card"><h3>Perbandingan per bulan</h3>${chart}</div></div><h2 style="margin-top:18px">Semua pilihan</h2>${table}`;
   }
@@ -83,8 +79,6 @@
       form.visits = Number($('#rVisits').value) || 0;
       form.storageGB = Number($('#rStore').value) || 0;
       form.arch = $('#rArch').value;
-      form.ha = $('#rHa').checked;
-      form.growth = $('#rGrow').checked;
       form.providers = IDS.filter((id) => main.querySelector(`[data-prov="${id}"]`).checked);
       $('#rNote').textContent = cat.workloads[form.workload].note;
     };
@@ -127,7 +121,7 @@
     for (const x of r.rows) byProv[x.provider] = (byProv[x.provider] || 0) + x.monthly;
     const donut = C.donut({ slices: r.rows.filter((x) => x.monthly > 0).map((x) => ({ label: `${x.label} (${x.detail})`, value: x.monthly })), label: 'Porsi biaya bulanan per sumber daya', center: { top: usd(r.monthly), bottom: 'per bulan' }, size: 140 });
     const prov = Object.keys(byProv).length > 1 ? `<h3 style="margin:16px 0 6px">Per platform</h3>${C.hbars({ rows: Object.entries(byProv).map(([id, v]) => ({ label: cat.providers[id].label, value: v, color: COLOR[id] })), label: 'Biaya per platform' })}` : '';
-    const growth = C.line({ rows: r.growth.map((g) => ({ date: `Bulan ${g.month}`, v: g.cumulative })), label: 'Biaya kumulatif 12 bulan', height: 160 });
+    const growth = C.line({ rows: [{ date: 'Bulan 0', label: '0', v: 0 }, ...r.growth.map((g) => ({ date: `Bulan ${g.month}`, label: `Bln ${g.month}`, v: g.cumulative }))], label: 'Biaya kumulatif 12 bulan', height: 170, valueLabel: 'Total' });
     return `<div class="label muted">Perkiraan biaya per bulan</div>
       <div class="big">${usd(r.monthly)}</div>
       <p class="muted" style="margin:0 0 14px">${usd((r.monthly / 730) * 24)} per hari, ${usd(r.yearly)} per tahun.</p>
@@ -257,8 +251,7 @@
     cat.savedPlans = cat.savedPlans.filter((p) => p.items.every((x) => cat.kinds[x.kind] && x.provider));
     if (!items.length) items = [{ kind: 'server', provider: 'aws', type: 't3a.small', qty: 1, diskGB: 30 }, { kind: 'egress', provider: 'aws', qty: 100 }];
     const tabs = `<nav class="tabs" aria-label="Mode planning"><a href="#" data-tab="recommend" ${tab === 'recommend' ? 'aria-current="page"' : ''}>Rekomendasi</a><a href="#" data-tab="build" ${tab === 'build' ? 'aria-current="page"' : ''}>Susun sendiri</a></nav>`;
-    const intro = '<p class="muted" style="max-width:720px">Hitung biaya server sebelum membuatnya. Tidak butuh akun cloud dan tidak mengeluarkan uang. Hasilnya tidak mengubah budget atau data server.</p>';
-    const body = tab === 'recommend' ? `${tabs}${intro}<div class="box">${recForm()}</div><div id="recOut"></div>` : `${tabs}${intro}${buildHtml()}`;
+    const body = tab === 'recommend' ? `${tabs}<div class="box">${recForm()}</div><div id="recOut"></div>` : `${tabs}${buildHtml()}`;
     main.innerHTML = pageHtml('Planning', '', body);
     main.querySelectorAll('[data-tab]').forEach((a) =>
       a.addEventListener('click', (e) => {

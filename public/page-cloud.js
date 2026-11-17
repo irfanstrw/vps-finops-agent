@@ -78,7 +78,7 @@
   const STATE = { running: 'running', stopped: 'stopped' };
 
   function serversHtml(list) {
-    if (!list.length) return '<p class="muted">Belum ada server di region ini. Setelah membuat server, klik Sinkronkan atau tunggu satu menit.</p>';
+    if (!list.length) return '<p class="muted">Belum ada server di region ini. Setelah membuat server, klik Refresh atau tunggu satu menit.</p>';
     return `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Server</th><th scope="col">Lokasi</th><th scope="col">Tipe</th><th scope="col">Spesifikasi</th><th scope="col">Status</th><th scope="col" class="num">Per bulan</th></tr></thead><tbody>${list
       .map((s) => `<tr><td>${esc(s.name)}<br><span class="muted">${esc(s.id.split('/').pop())}</span></td><td>${esc(s.location)}</td><td><code>${esc(s.type)}</code></td><td>${s.vcpu ? `${s.vcpu} vCPU, ${s.memGiB} GiB, ` : ''}${s.diskGB} GB disk</td><td><span class="status s-${esc(s.state)}">${esc(STATE[s.state] || s.state)}</span></td><td class="num">${usd(s.monthly)}</td></tr>`)
       .join('')}</tbody></table></div>`;
@@ -105,7 +105,7 @@
       .join('');
     const billHtml = sum && sum.billed
       ? `<section class="section"><h2>Bills server, 30 hari terakhir</h2>
-          ${C.line({ rows: sum.series.map((d) => ({ date: d.date.slice(5), v: d.total })), label: `Bills harian ${def.title}`, height: 170 })}
+          ${C.line({ rows: sum.series.map((d) => ({ date: d.date, label: d.date.slice(5), v: d.total })), label: `Bills harian ${def.title}`, height: 190, color: { aws: 'var(--p-aws)', azure: 'var(--p-azure)', gcp: 'var(--p-gcp)' }[id], valueLabel: 'Bills' })}
           ${sum.services.length ? `<div style="margin-top:14px">${C.hbars({ rows: sum.services.slice(0, 6).map((x) => ({ label: x.name, value: x.amount })), label: `Bills per layanan ${def.title}` })}</div>` : ''}
           <p class="muted">Compute, disk, dan jaringan. Data terbaru ${esc(sum.lastDate)}.</p></section>`
       : '';
@@ -115,7 +115,7 @@
       <section class="box"><h2>Sambungan</h2>${status}
         <form id="cloudForm" style="display:grid;gap:10px;max-width:620px;margin-top:10px">${fields}
           <p class="err" id="cloudErr" role="alert"></p>
-          <div class="row"><button class="btn primary" type="submit" ${s.fromEnv ? 'disabled' : ''}>Simpan</button><button class="btn" type="button" id="cloudSync" ${s.configured ? '' : 'disabled'}>Sinkronkan</button>${s.configured && !s.fromEnv ? '<button class="btn danger" type="button" id="cloudClear">Putuskan</button>' : ''}<span id="cloudResult" role="status"></span></div>
+          <div class="row"><button class="btn primary" type="submit" ${s.fromEnv ? 'disabled' : ''}>Simpan</button><button class="btn" type="button" id="cloudSync" ${s.configured ? '' : 'disabled'}>Refresh</button>${s.configured && !s.fromEnv ? '<button class="btn danger" type="button" id="cloudClear">Putuskan</button>' : ''}<span id="cloudResult" role="status"></span></div>
         </form></section>
       ${s.configured ? `<section class="section"><h2>Server terdaftar (${esc(s.servers.length)})</h2>${serversHtml(s.servers)}</section>` : ''}
       ${billHtml}
@@ -145,20 +145,23 @@
     });
     $('#cloudSync').addEventListener('click', async (e) => {
       e.target.disabled = true;
-      result.textContent = `Membaca data dari ${def.title}...`;
+      e.target.textContent = 'Memperbarui...';
+      result.textContent = '';
       try {
         const r = await api('POST', `/api/cloud/${id}/sync`);
         if (r.error) {
           result.innerHTML = `<span class="s-alert">Gagal: ${esc(r.error)}</span>`;
           e.target.disabled = false;
+          e.target.textContent = 'Refresh';
         } else {
-          toast(r.note || 'Sinkron selesai');
+          toast(r.note || 'Data diperbarui');
           renderCloud(main, tabs, id);
           A.refreshBalance();
         }
       } catch (err) {
         result.innerHTML = `<span class="s-alert">${esc(err.message)}</span>`;
         e.target.disabled = false;
+        e.target.textContent = 'Refresh';
       }
     });
     const clr = $('#cloudClear');

@@ -408,3 +408,32 @@ tbody th { font-weight: 400; color: var(--text); }
 }
 .flow { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 .live { font-size: 12.5px; align-self: center; }
+
+/* Grafik garis: SVG meregang, teks tetap HTML */
+.lc { display: grid; grid-template-columns: 52px 1fr; grid-template-rows: 1fr 22px; font-variant-numeric: tabular-nums; }
+.lc-y { position: relative; grid-row: 1; }
+.lc-y span { position: absolute; right: 10px; transform: translateY(-50%); font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.lc-plot { position: relative; grid-row: 1; grid-column: 2; outline-offset: 4px; border-radius: 2px; cursor: crosshair; }
+.lc-plot svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.lc-x { grid-column: 2; position: relative; }
+.lc-x span { position: absolute; top: 6px; transform: translateX(-50%); font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.lc-x span.first { transform: none; }
+.lc-x span.last { transform: translateX(-100%); }
+.lc-grid { stroke: var(--edge); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.lc-today { stroke: var(--field); stroke-width: 1; stroke-dasharray: 2 4; vector-effect: non-scaling-stroke; }
+.lc-ref { stroke: var(--bad); stroke-width: 1.2; stroke-dasharray: 6 5; vector-effect: non-scaling-stroke; }
+.lc-ln { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; animation: fade .7s ease-out both; }
+.lc-ln.bold { stroke-width: 2.6; }
+.lc-ln.proj { stroke-dasharray: 5 6; opacity: .75; }
+.lc-area { animation: fade .9s ease-out .1s both; }
+.lc-mark { position: absolute; top: -2px; transform: translateX(6px); font-size: 11px; color: var(--muted); pointer-events: none; }
+.lc-refl { position: absolute; right: 0; transform: translateY(-120%); font-size: 11px; color: var(--bad); pointer-events: none; background: var(--panel); padding: 0 4px; }
+.lc-xh { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--field); opacity: 0; pointer-events: none; }
+.lc-xh.on { opacity: 1; }
+.lc-dot { position: absolute; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--panel); transform: translate(-50%, -50%); opacity: 0; pointer-events: none; transition: left .08s, top .08s; }
+.lc-dot.on { opacity: 1; }
+.lc .tip i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.lc-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-top: 10px; }
+.lc-legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+.lc-legend i.dash { background: repeating-linear-gradient(90deg, var(--muted) 0 4px, transparent 4px 7px) !important; }
+@media (max-width: 800px) { .lc { grid-template-columns: 44px 1fr; } }

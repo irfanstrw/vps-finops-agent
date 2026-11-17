@@ -1,19 +1,18 @@
-# FinOps Agent
+# VPS FinOps Agent
 
-Dashboard FinOps untuk server di AWS (EC2), Azure (Virtual Machines), dan Google Cloud (Compute Engine). Daftar server dan tagihan dibaca lewat API read-only milik tiap platform, lalu ditampilkan dalam satu dashboard. Biaya bisa direncanakan tanpa akun cloud, dan tagihan bisa diekspor dengan kolom FOCUS.
+Dashboard FinOps untuk server di AWS (EC2), Azure (Virtual Machines), dan Google Cloud (Compute Engine). Daftar server dan bills dibaca lewat API read-only milik tiap platform, lalu ditampilkan dalam satu dashboard. Biaya server juga bisa direncanakan di Planning.
 
 ## Fitur
 
 | Fitur | Isi |
 |---|---|
-| Dashboard | Perkiraan biaya akhir bulan, empat grafik sekaligus (harian per platform, kumulatif vs budget, porsi platform, server terbesar), tabel penggunaan per platform, daftar server, peluang hemat, lonjakan tagihan |
+| Dashboard | Perkiraan biaya akhir bulan, empat grafik sekaligus (biaya harian per platform, kumulatif vs budget, porsi platform, server terbesar), tombol Refresh, tabel penggunaan per platform, daftar server, peluang hemat, lonjakan bills |
 | Server terdaftar | Diambil otomatis dari EC2, Azure VM, dan Compute Engine. Tidak ada server yang ditambah manual |
-| Planning | Rekomendasi spesifikasi dari budget dan kebutuhan (jenis aplikasi, kunjungan, data, ketersediaan), atau susun sendiri lintas platform. Rencana bisa disimpan, dibandingkan, dan diunduh |
+| Planning | Rekomendasi spesifikasi dari budget dan kebutuhan (jenis aplikasi, kunjungan, data), atau susun sendiri lintas platform. Rencana bisa disimpan, dibandingkan, dan diunduh |
 | Budget | Uang yang kamu sediakan per bulan untuk biaya server. Bisa ditambah, dikurangi, atau ditetapkan |
 | Chat agent | Jawaban dengan grafik, kartu angka, dan tombol pertanyaan lanjutan. Model AI opsional dengan cadangan |
 | Automations | Cek lonjakan harian, peringatan budget, review hemat mingguan |
 | Artifacts | Laporan tersimpan, bisa dihapus satu per satu atau sekaligus |
-| Ekspor | CSV tagihan dengan nama kolom FOCUS, tidak terkunci pada satu vendor |
 
 ## Deploy ke Vercel
 
@@ -42,8 +41,8 @@ Semua ada di **Integrations**, dengan langkah penyiapan di tiap tab.
 | Platform | Akses read-only | Catatan |
 |---|---|---|
 | AWS | User IAM dengan `ec2:DescribeInstances`, `ec2:DescribeVolumes`, `ce:GetCostAndUsage` | Server di us-east-1. Buka Cost Explorer sekali supaya bills tersedia (sampai 24 jam) |
-| Azure | Service principal dengan peran Reader dan Cost Management Reader | Data tagihan tertunda beberapa jam |
-| Google Cloud | Service account dengan peran Compute Viewer | Tagihan asli opsional lewat ekspor penagihan BigQuery |
+| Azure | Service principal dengan peran Reader dan Cost Management Reader | Data bills tertunda beberapa jam |
+| Google Cloud | Service account dengan peran Compute Viewer | Bills asli opsional lewat ekspor penagihan BigQuery |
 
 Setelah kredensial disimpan, server langsung dibaca. Status server (running atau stopped) diperbarui setiap menit selama dashboard dibuka. Bills diperbarui sekali sehari. Semua platform memakai region US East: AWS us-east-1, Azure East US, Google Cloud us-east1.
 
@@ -58,15 +57,15 @@ Setelah kredensial disimpan, server langsung dibaca. Status server (running atau
 | `AI_PRIMARY_API_KEY`, `AI_BACKUP_API_KEY` | Kunci model AI, menimpa nilai dari UI |
 | `FINOPS_AWS_ACCESS_KEY_ID`, `FINOPS_AWS_SECRET_ACCESS_KEY` | Kredensial AWS |
 | `FINOPS_AZURE_TENANT_ID`, `FINOPS_AZURE_CLIENT_ID`, `FINOPS_AZURE_CLIENT_SECRET`, `FINOPS_AZURE_SUBSCRIPTION_ID` | Kredensial Azure |
-| `FINOPS_GCP_SERVICE_ACCOUNT_JSON`, `FINOPS_GCP_BILLING_TABLE` | Kredensial Google Cloud dan tabel tagihan (opsional) |
+| `FINOPS_GCP_SERVICE_ACCOUNT_JSON`, `FINOPS_GCP_BILLING_TABLE` | Kredensial Google Cloud dan tabel bills (opsional) |
 
 ## Cara angka dihitung
 
 | Angka | Sumber |
 |---|---|
 | Biaya per server | Daftar harga on-demand Linux (`lib/pricing.js`): compute per jam x 730, disk per GB, satu IPv4 publik. Server stopped hanya membayar disk |
-| Biaya bulan berjalan | Tagihan asli kalau tersedia (hanya layanan compute, disk, dan jaringan). Kalau belum ada, estimasi dari daftar server |
-| Perkiraan akhir bulan | Bulan berjalan + rata-rata tagihan 7 hari (atau estimasi harian) x hari tersisa |
+| Biaya bulan berjalan | Bills asli kalau tersedia (hanya layanan compute, disk, dan jaringan). Kalau belum ada, estimasi dari daftar server |
+| Perkiraan akhir bulan | Bulan berjalan + rata-rata bills 7 hari (atau estimasi harian) x hari tersisa |
 | Rekomendasi Planning | Aturan tetap per jenis aplikasi untuk kebutuhan vCPU dan RAM, lalu tipe server terkecil yang memenuhi di tiap platform |
 
 Harga on-demand region US East, disimpan di `lib/pricing.js`.

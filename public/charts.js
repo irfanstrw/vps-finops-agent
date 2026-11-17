@@ -55,32 +55,147 @@
   }
 
   // rows: [{date, v}]; opsional band: [{date, lo, hi}] untuk rentang forecast
-  function line({ rows, label, height = 190, color = 'var(--s1)', refLine, refLabel }) {
+  // Kurva monoton (Fritsch-Carlson): halus tetapi tidak melewati titik data (tidak ada lonjakan palsu).
+  function smooth(pts) {
+    const n = pts.length;
+    if (n < 2) return n ? `M${pts[0][0]},${pts[0][1]}` : '';
+    if (n === 2) return `M${pts[0][0]},${pts[0][1]}L${pts[1][0]},${pts[1][1]}`;
+    const d = [], m = [];
+    for (let i = 0; i < n - 1; i++) d.push((pts[i + 1][1] - pts[i][1]) / (pts[i + 1][0] - pts[i][0] || 1));
+    m[0] = d[0];
+    m[n - 1] = d[n - 2];
+    for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+    for (let i = 0; i < n - 1; i++) {
+      if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+      const a = m[i] / d[i], b = m[i + 1] / d[i], s = a * a + b * b;
+      if (s > 9) { const t = 3 / Math.sqrt(s); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
+    }
+    let p = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+    for (let i = 0; i < n - 1; i++) {
+      const h = (pts[i + 1][0] - pts[i][0]) / 3;
+      p += `C${(pts[i][0] + h).toFixed(1)},${(pts[i][1] + m[i] * h).toFixed(1)} ${(pts[i + 1][0] - h).toFixed(1)},${(pts[i + 1][1] - m[i + 1] * h).toFixed(1)} ${pts[i + 1][0].toFixed(1)},${pts[i + 1][1].toFixed(1)}`;
+    }
+    return p;
+  }
+
+  // Grafik garis multi-seri. Garis digambar di SVG yang meregang mengikuti lebar kartu, sedangkan label sumbu,
+  // titik sorot, dan tooltip berupa HTML supaya teks tidak ikut melar.
+  // rows: [{date, label?, proj?, <key>: number}], series: [{key, label, color, area?}]
+  function lines({ rows, series, label, height = 220, refLine, refLabel }) {
+    if (!rows.length || !series.length) return '';
     const id = `c${++uid}`;
-    const W = 720, H = height, L = 46, R = 8, T = 10, B = 24;
-    const iw = W - L - R, ih = H - T - B;
-    const vals = rows.map((r) => r.v);
-    const max = niceMax(Math.max(...vals, refLine || 0, 0.000001));
-    const x = (i) => L + (rows.length === 1 ? iw / 2 : (i / (rows.length - 1)) * iw);
-    const y = (v) => T + ih - (v / max) * ih;
-    let g = '';
+    const VW = 1000, VH = 300;
+    const n = rows.length;
+    const max = niceMax(Math.max(...rows.flatMap((r) => series.map((s) => r[s.key] || 0)), refLine || 0, 0.000001));
+    const X = (i) => (n === 1 ? VW / 2 : (i / (n - 1)) * VW);
+    const Y = (v) => VH - (v / max) * VH;
+    const split = rows.findIndex((r) => r.proj);
+    const histEnd = split < 0 ? n : Math.max(1, split);
+    let defs = '', paths = '';
+    series.forEach((s, k) => {
+      const pts = rows.map((r, i) => [X(i), Y(r[s.key] || 0)]);
+      const hist = pts.slice(0, histEnd);
+      const proj = split < 0 ? [] : pts.slice(histEnd - 1);
+      const area = s.area ?? series.length === 1;
+      if (area && hist.length > 1) {
+        const gid = `${id}g${k}`;
+        defs += `<linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:${s.color};stop-opacity:.28"/><stop offset="1" style="stop-color:${s.color};stop-opacity:0"/></linearGradient>`;
+        paths += `<path class="lc-area" d="${smooth(hist)}L${hist[hist.length - 1][0].toFixed(1)},${VH}L${hist[0][0].toFixed(1)},${VH}Z" fill="url(#${gid})"/>`;
+      }
+      paths += `<path class="lc-ln${s.bold ? ' bold' : ''}" d="${smooth(hist)}" style="stroke:${s.color}"/>`;
+      if (proj.length > 1) paths += `<path class="lc-ln proj${s.bold ? ' bold' : ''}" d="${smooth(proj)}" style="stroke:${s.color}"/>`;
+    });
+    let grid = '', ylab = '';
     for (let i = 0; i <= 4; i++) {
       const v = (max / 4) * i;
-      g += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="tick" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${short(v)}</text>`;
+      grid += `<line class="lc-grid" x1="0" x2="${VW}" y1="${Y(v)}" y2="${Y(v)}"/>`;
+      ylab += `<span style="top:${(100 - (v / max) * 100).toFixed(2)}%">${esc(short(v))}</span>`;
     }
-    const split = rows.findIndex((r) => r.proj);
-    const pts = rows.map((r, i) => [x(i), y(r.v)]);
-    const path = (arr) => arr.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
-    const hist = split < 0 ? pts : pts.slice(0, split + (split > 0 ? 1 : 0));
-    const proj = split < 0 ? [] : pts.slice(Math.max(0, split - 1));
-    const area = hist.length > 1 ? `<path class="area" d="${path(hist)} L${hist[hist.length - 1][0].toFixed(1)},${T + ih} L${hist[0][0].toFixed(1)},${T + ih} Z" fill="${color}"/>` : '';
-    const ref = refLine ? `<line class="ref" x1="${L}" x2="${W - R}" y1="${y(refLine)}" y2="${y(refLine)}"/><text class="tick" x="${W - R}" y="${y(refLine) - 5}" text-anchor="end">${esc(refLabel || 'batas')}</text>` : '';
-    const first = rows[0], last = rows[rows.length - 1];
-    const axis = `<text class="tick" x="${L}" y="${H - 6}">${esc(first.date)}</text><text class="tick" x="${W - R}" y="${H - 6}" text-anchor="end">${esc(last.date)}</text>`;
-    const hits = rows.map((r, i) => `<rect class="hit" x="${(x(i) - iw / rows.length / 2).toFixed(1)}" y="${T}" width="${(iw / rows.length).toFixed(1)}" height="${ih}" data-i="${i}"/>`).join('');
-    const dots = rows.length <= 40 ? pts.map((p, i) => `<circle class="dot${rows[i].proj ? ' proj' : ''}" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2.5" fill="${color}"/>`).join('') : '';
-    const data = esc(JSON.stringify({ rows: rows.map((r) => ({ date: r.date, proj: !!r.proj, total: r.v, parts: [] })) }));
-    return `<div class="chartbox" data-chart="${id}" data-info="${data}"><svg class="svgchart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}" preserveAspectRatio="none">${g}${ref}${area}<path class="ln" d="${path(hist)}" stroke="${color}" fill="none"/>${proj.length > 1 ? `<path class="ln proj" d="${path(proj)}" stroke="${color}" fill="none"/>` : ''}${dots}${hits}${axis}</svg><div class="tip" role="status" aria-live="polite"></div></div>`;
+    const ticks = Math.min(n, 6);
+    let xlab = '';
+    for (let t = 0; t < ticks; t++) {
+      const i = ticks === 1 ? 0 : Math.round((t / (ticks - 1)) * (n - 1));
+      const cls = t === 0 ? 'first' : t === ticks - 1 ? 'last' : '';
+      xlab += `<span class="${cls}" style="left:${((X(i) / VW) * 100).toFixed(2)}%">${esc(rows[i].label || rows[i].date)}</span>`;
+    }
+    let marks = '';
+    if (split > 0) {
+      const xp = ((X(histEnd - 1) / VW) * 100).toFixed(2);
+      grid += `<line class="lc-today" x1="${X(histEnd - 1)}" x2="${X(histEnd - 1)}" y1="0" y2="${VH}"/>`;
+      marks += `<span class="lc-mark" style="left:${xp}%">hari ini</span>`;
+    }
+    if (refLine) {
+      grid += `<line class="lc-ref" x1="0" x2="${VW}" y1="${Y(refLine)}" y2="${Y(refLine)}"/>`;
+      marks += `<span class="lc-refl" style="top:${(100 - (refLine / max) * 100).toFixed(2)}%">${esc(refLabel || usd(refLine))}</span>`;
+    }
+    const info = { max, rows: rows.map((r) => ({ date: r.label || r.date, proj: !!r.proj, vals: series.map((s) => r[s.key] || 0) })), series: series.map((s) => ({ label: s.label, color: s.color })) };
+    return `<div class="lc" data-lc="${esc(JSON.stringify(info))}" style="height:${height}px">
+      <div class="lc-y" aria-hidden="true">${ylab}</div>
+      <div class="lc-plot" tabindex="0" role="img" aria-label="${esc(label)}">
+        <svg viewBox="0 0 ${VW} ${VH}" preserveAspectRatio="none" aria-hidden="true"><defs>${defs}</defs>${grid}${paths}</svg>
+        ${marks}<div class="lc-xh"></div>${series.map((s) => `<i class="lc-dot" style="background:${s.color}"></i>`).join('')}<div class="tip" role="status" aria-live="polite"></div>
+      </div>
+      <div class="lc-x" aria-hidden="true">${xlab}</div>
+    </div>`;
+  }
+
+  function bindLines(root) {
+    root.querySelectorAll('.lc').forEach((box) => {
+      if (box.dataset.bound) return;
+      box.dataset.bound = '1';
+      let info;
+      try { info = JSON.parse(box.dataset.lc); } catch { return; }
+      const plot = box.querySelector('.lc-plot');
+      const tip = plot.querySelector('.tip');
+      const xh = plot.querySelector('.lc-xh');
+      const dots = [...plot.querySelectorAll('.lc-dot')];
+      const n = info.rows.length;
+      let cur = n - 1;
+      const show = (i) => {
+        cur = i;
+        const r = info.rows[i];
+        const xp = n === 1 ? 50 : (i / (n - 1)) * 100;
+        xh.style.left = `${xp}%`;
+        xh.classList.add('on');
+        dots.forEach((d, k) => {
+          d.style.left = `${xp}%`;
+          d.style.top = `${100 - (r.vals[k] / info.max) * 100}%`;
+          d.classList.add('on');
+        });
+        tip.innerHTML = `<strong>${esc(r.date)}${r.proj ? ' (perkiraan)' : ''}</strong>${info.series.map((s, k) => `<div><span><i style="background:${s.color}"></i>${esc(s.label)}</span><b>${esc(usd(r.vals[k]))}</b></div>`).join('')}`;
+        tip.classList.add('on');
+        const w = plot.clientWidth;
+        const px = (xp / 100) * w;
+        tip.style.left = `${px > w - 200 ? Math.max(0, px - 200) : px + 12}px`;
+        tip.style.top = '0px';
+      };
+      const hide = () => {
+        tip.classList.remove('on');
+        xh.classList.remove('on');
+        dots.forEach((d) => d.classList.remove('on'));
+      };
+      const at = (clientX) => {
+        const b = plot.getBoundingClientRect();
+        const f = Math.min(1, Math.max(0, (clientX - b.left) / b.width));
+        return Math.round(f * (n - 1));
+      };
+      plot.addEventListener('mousemove', (e) => show(at(e.clientX)));
+      plot.addEventListener('mouseleave', hide);
+      plot.addEventListener('touchstart', (e) => show(at(e.touches[0].clientX)), { passive: true });
+      plot.addEventListener('focus', () => show(cur));
+      plot.addEventListener('blur', hide);
+      plot.addEventListener('keydown', (e) => {
+        const k = { ArrowRight: Math.min(n - 1, cur + 1), ArrowLeft: Math.max(0, cur - 1), Home: 0, End: n - 1 }[e.key];
+        if (k === undefined) return;
+        e.preventDefault();
+        show(k);
+      });
+    });
+  }
+
+  // Satu seri: dipakai grafik kumulatif dan planning.
+  function line({ rows, label, height = 200, color = 'var(--s1)', refLine, refLabel, valueLabel = 'Biaya' }) {
+    return lines({ rows: rows.map((r) => ({ ...r, label: r.label || r.date })), series: [{ key: 'v', label: valueLabel, color, area: true }], label, height, refLine, refLabel });
   }
 
   function donut({ slices, label, size = 150, center }) {
@@ -169,5 +284,5 @@
     });
   }
 
-  window.Charts = { bars, line, donut, hbars, bind, usd, short };
+  window.Charts = { bars, line, lines, donut, hbars, bind: (root) => { bind(root); bindLines(root); }, usd, short };
 })();
