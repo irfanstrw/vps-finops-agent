@@ -437,3 +437,6 @@ tbody th { font-weight: 400; color: var(--text); }
 .lc-legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
 .lc-legend i.dash { background: repeating-linear-gradient(90deg, var(--muted) 0 4px, transparent 4px 7px) !important; }
 @media (max-width: 800px) { .lc { grid-template-columns: 44px 1fr; } }
+.focus .calc { margin: -6px 0 12px; font-variant-numeric: tabular-nums; }
+.card h3 { margin: 0 0 8px; }
+.card table td:nth-child(2) { color: var(--muted); }

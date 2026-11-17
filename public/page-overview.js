@@ -26,10 +26,11 @@
       <div class="focus">
         <div class="label">Perkiraan biaya server sampai akhir bulan</div>
         <div class="big">${usd(t.forecast)}</div>
+        <p class="sub calc">${usd(t.mtd)} sudah terpakai + ${usd(t.perDay)} per hari x ${o.daysLeft} hari lagi = ${usd(t.forecast)}</p>
         ${meter}
       </div>
       <dl class="facts">
-        <div><dt>Terpakai bulan ini</dt><dd>${usd(t.mtd)}</dd></div>
+        <div><dt>Terpakai bulan ini</dt><dd>${usd(t.mtd)}${t.credit > 0 ? `<small>${usd(t.credit)} ditutup credits, dibayar ${usd(Math.max(0, t.mtd - t.credit))}</small>` : ''}</dd></div>
         <div><dt>Rata-rata per hari</dt><dd>${usd(t.perDay)}<small>${o.daysLeft} hari lagi sampai akhir bulan</small></dd></div>
         <div><dt>Server running</dt><dd>${t.running} dari ${t.servers}</dd></div>
         <div><dt>Budget tersisa</dt><dd>${usd(b.remaining)}<small>dari ${usd(b.amount)} per bulan</small></dd></div>
@@ -116,13 +117,43 @@
       <tfoot><tr><th scope="row">Total</th><td class="num">${o.totals.running} / ${o.servers.length}</td><td class="num">${sum('vcpu')}</td><td class="num">${sum('mem').toFixed(1)} GiB</td><td class="num">${sum('disk')} GB</td><td class="num">${usd(o.totals.mtd)}</td><td class="num">${usd(o.totals.perDay)}</td><td class="num">${usd(o.totals.forecast)}</td><td></td></tr></tfoot></table></div>`;
   }
 
+  // Kenapa angkanya segitu: dua angka berbeda dijelaskan berdampingan.
+  //   Per bulan = biaya kalau server dibiarkan seperti sekarang selama sebulan penuh (730 jam).
+  //   Akhir bulan = yang sudah terpakai bulan ini + sisa hari bulan ini saja.
+  function breakdownSection(o) {
+    const t = o.totals;
+    const p = t.parts;
+    const full = p.compute + p.disk + p.ip;
+    if (!o.servers.length) return '';
+    const row = (k, v, note) => `<tr><th scope="row">${k}</th><td>${note}</td><td class="num">${usd(v)}</td></tr>`;
+    const disks = o.servers.reduce((a, s) => a + (s.diskGB || 0), 0);
+    const running = o.servers.filter((s) => s.state === 'running');
+    return `<section class="section"><h2>Rincian biaya</h2>
+      <div class="rec-grid">
+        <div class="card"><h3>Kalau kondisi server tetap sebulan penuh</h3>
+          <div class="tbl-wrap"><table><tbody>
+            ${row('Compute', p.compute, running.length ? `${running.length} server running, dihitung per jam` : 'Tidak ada server running, compute tidak ditagih')}
+            ${row('Disk', p.disk, `${disks} GB, tetap ditagih walau server stopped`)}
+            ${row('Public IPv4', p.ip, running.length ? 'Per jam selama server running' : 'Tidak ditagih saat server stopped')}
+          </tbody><tfoot><tr><th scope="row">Per bulan</th><td></td><td class="num">${usd(full)}</td></tr></tfoot></table></div>
+        </div>
+        <div class="card"><h3>Bulan ini</h3>
+          <div class="tbl-wrap"><table><tbody>
+            ${row('Sudah terpakai', t.mtd, IDS.some((id) => o.platforms[id].billed) ? 'Dari bills' : 'Estimasi sejak awal bulan')}
+            ${row('Sisa bulan ini', t.remaining, `${o.daysLeft} hari x ${usd(t.perDay)}`)}
+          </tbody><tfoot><tr><th scope="row">Akhir bulan</th><td></td><td class="num">${usd(t.forecast)}</td></tr></tfoot></table></div>
+          ${t.credit > 0 ? `<p class="muted" style="margin:8px 0 0">${usd(t.credit)} dari yang sudah terpakai ditutup credits, jadi yang benar-benar dibayar ${usd(Math.max(0, t.mtd - t.credit))}.</p>` : ''}
+        </div>
+      </div></section>`;
+  }
+
   function serverTable(o) {
     const list = o.servers.filter((s) => state.filter === 'all' || s.provider === state.filter).sort((a, b) => b.monthly - a.monthly);
     if (!list.length) return '<p class="muted">Tidak ada server untuk filter ini.</p>';
-    return `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Server</th><th scope="col">Platform</th><th scope="col">Lokasi</th><th scope="col">Tipe</th><th scope="col">Spesifikasi</th><th scope="col">Status</th><th scope="col" class="num">Per jam</th><th scope="col" class="num">Per bulan</th></tr></thead><tbody>${list
+    return `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Server</th><th scope="col">Platform</th><th scope="col">Lokasi</th><th scope="col">Tipe</th><th scope="col">Spesifikasi</th><th scope="col">Status</th><th scope="col" class="num">Compute</th><th scope="col" class="num">Disk</th><th scope="col" class="num">IPv4</th><th scope="col" class="num">Per bulan</th></tr></thead><tbody>${list
       .map((s) => `<tr><td>${esc(s.name)}</td><td><span class="cell-logo">${L.badge(s.provider, 'logo xs')}${esc(o.platforms[s.provider].label)}</span></td><td>${esc(s.location)}</td><td><code>${esc(s.type)}</code>${s.known ? '' : '<br><span class="muted">tipe tidak ada di daftar harga</span>'}</td>
         <td>${s.vcpu ? `${s.vcpu} vCPU, ${s.memGiB} GiB, ` : ''}${s.diskGB} GB disk</td><td><span class="status s-${esc(s.state)}">${esc(STATE[s.state] || s.state)}</span></td>
-        <td class="num">${s.hourly ? usd(s.hourly, 4) : '-'}</td><td class="num">${usd(s.monthly)}</td></tr>`)
+        <td class="num">${s.parts.compute ? `${usd(s.parts.compute)}<br><span class="muted">${usd(s.hourly, 4)}/jam</span>` : '<span class="muted">$0, stopped</span>'}</td><td class="num">${usd(s.parts.disk)}<br><span class="muted">${s.diskGB} GB</span></td><td class="num">${usd(s.parts.ip)}</td><td class="num"><b>${usd(s.monthly)}</b></td></tr>`)
       .join('')}</tbody></table></div>`;
   }
 
@@ -181,8 +212,9 @@
         <section class="card wide"><div class="card-head"><h2>Biaya harian</h2><div class="seg-ctl" role="group" aria-label="Rentang waktu">${ranges}</div></div><div id="dailyHost">${dailyChart(o)}</div></section>
         <section class="card"><div class="card-head"><h2>Kumulatif bulan ini vs budget</h2></div>${cumulativeChart(o)}</section>
         <section class="card"><div class="card-head"><h2>Porsi per platform</h2></div>${shareChart(o)}</section>
-        <section class="card wide"><div class="card-head"><h2>Server dengan biaya terbesar</h2><span class="muted">estimasi per bulan</span></div>${topChart(o)}</section>
+        <section class="card wide"><div class="card-head"><h2>Server dengan biaya terbesar</h2><span class="muted">kalau kondisinya tetap sebulan penuh</span></div>${topChart(o)}</section>
       </div>
+      ${breakdownSection(o)}
       <section class="section"><h2>Penggunaan per platform</h2>${usageTable(o)}</section>
       <section class="section"><div class="card-head"><h2>Server terdaftar</h2><label class="row" style="gap:6px">Filter<select id="srvFilter" style="width:auto">${filters}</select></label></div><div id="srvHost">${serverTable(o)}</div></section>
       ${savingsSection(o)}
