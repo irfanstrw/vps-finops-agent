@@ -199,6 +199,7 @@ route('GET', '/api/overview', async (req, res) => {
     mtd,
     budget: agent.budgetFromContext(),
     daily: costs.dailySeries(costs.daysBack(30)),
+    projected: costs.projectedDaily(30),
     vps: store.db.vps.map(vpsView),
     anomalies: costs.detectAnomalies({ fromDays: 30 }).slice(0, 10),
   });
@@ -225,6 +226,11 @@ route('POST', '/api/chats', async (req, res) => {
   store.db.chats.push(c);
   store.save();
   send(res, 201, c);
+});
+route('DELETE', '/api/chats', async (req, res) => {
+  store.db.chats = [];
+  store.save();
+  send(res, 200, { ok: true });
 });
 route('GET', '/api/chats/:id', async (req, res, p) => send(res, 200, findOr404(store.db.chats, p.id, 'Chat')));
 route('DELETE', '/api/chats/:id', async (req, res, p) => {

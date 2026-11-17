@@ -145,7 +145,18 @@
     $('#recent').innerHTML = chats.length
       ? chats.map((c) => `<a href="#/chat/${esc(c.id)}" class="${c.id === cur ? 'active' : ''}" title="${esc(c.title)}">${esc(c.title)}</a>`).join('')
       : '<span class="muted" style="padding:0 8px">Belum ada percakapan</span>';
+    $('#clearChats').classList.toggle('hidden', !chats.length);
   }
+
+  // Delete all chats (inline confirmation, no browser popup).
+  $('#clearChats').addEventListener('click', (e) =>
+    confirmInline(e.currentTarget, 'Yakin ingin hapus?', 'Ya, hapus semua', async () => {
+      await api('DELETE', '/api/chats');
+      toast('Semua percakapan dihapus');
+      location.hash = '#/chat/new';
+      if (location.hash === '#/chat/new') router();
+    })
+  );
   async function refreshBalance() {
     try {
       const o = await api('GET', '/api/overview');
@@ -216,7 +227,7 @@
     let chat = null;
     if (id && id !== 'new') chat = await api('GET', `/api/chats/${encodeURIComponent(id)}`);
     main.innerHTML = `
-      ${chat ? `<div class="chat-head"><div>${esc(chat.title)} <span class="id" id="showId">Lihat ID</span></div></div>` : ''}
+      ${chat ? `<div class="chat-head"><div>${esc(chat.title)} <span class="id" id="showId">Lihat ID</span></div><button class="btn small danger" id="delChat">Hapus percakapan</button></div>` : ''}
       <div class="messages" id="messages"></div>
       <div class="composer">
         <form id="composer">
@@ -233,7 +244,16 @@
       box.innerHTML = chat.messages.map((m) => msgHtml(m, chat.id)).join('');
       box.scrollTop = box.scrollHeight;
     }
-    if (chat) $('#showId').addEventListener('click', (e) => (e.target.textContent = chat.id));
+    if (chat) {
+      $('#showId').addEventListener('click', (e) => (e.target.textContent = chat.id));
+      $('#delChat').addEventListener('click', (e) =>
+        confirmInline(e.currentTarget, 'Yakin ingin hapus?', 'Ya, hapus', async () => {
+          await api('DELETE', `/api/chats/${chat.id}`);
+          toast('Percakapan dihapus');
+          location.hash = '#/chat/new';
+        })
+      );
+    }
 
     const input = $('#input');
     input.addEventListener('input', () => ($('#count').textContent = `${input.value.length}/10000 karakter maksimum`));
@@ -301,18 +321,28 @@
   }
 
   // ---------- overview ----------
-  function chartHtml(daily) {
-    const max = Math.max(...daily.map((d) => d.total), 0.000001);
+  // History (solid) followed by the projected days (hatched).
+  function chartHtml(daily, projected = []) {
+    const hasHistory = daily.some((d) => d.total > 0);
+    const hasProj = projected.some((d) => d.total > 0);
+    if (!hasHistory && !hasProj) {
+      return '<div class="chart-empty">Belum ada data biaya. Hubungkan VPS, atau tambah VPS sample AWS dan klik Aktifkan proyeksi.</div>';
+    }
+    const all = [...(hasHistory ? daily : []), ...projected];
+    const max = Math.max(...all.map((d) => d.total), 0.000001);
     const keys = ['compute', 'storage', 'ipv4', 'egress'];
-    const bars = daily
-      .map((d) => {
-        const segs = keys.map((k) => `<div class="seg c-${k}" style="height:${(d[k] / max) * 100}%"></div>`).join('');
-        return `<div class="bar" title="${esc(d.date)}: ${esc(usd(d.total))}">${segs}</div>`;
-      })
-      .join('');
+    const bar = (d, cls) => {
+      const segs = keys.map((k) => `<div class="seg c-${k}" style="height:${(d[k] / max) * 100}%"></div>`).join('');
+      return `<div class="bar ${cls}" title="${esc(d.date)}${cls ? ' (proyeksi)' : ''}: ${esc(usd(d.total))}">${segs}</div>`;
+    };
+    const bars = [
+      ...(hasHistory ? daily.map((d) => bar(d, '')) : []),
+      ...(hasHistory && hasProj ? ['<div class="gap"></div>'] : []),
+      ...projected.map((d) => bar(d, 'proj')),
+    ].join('');
     return `<div class="chart">${bars}</div>
-      <div class="chart-x"><span>${esc(daily[0]?.date)}</span><span>maks ${esc(usd(max))}/hari</span><span>${esc(daily[daily.length - 1]?.date)}</span></div>
-      <div class="legend"><span><i class="c-compute"></i>EC2 compute</span><span><i class="c-storage"></i>EBS gp3</span><span><i class="c-ipv4"></i>Public IPv4</span><span><i class="c-egress"></i>Data transfer out</span></div>`;
+      <div class="chart-x"><span>${esc(all[0].date)}</span><span>maks ${esc(usd(max))}/hari</span><span>${esc(all[all.length - 1].date)}</span></div>
+      <div class="legend"><span><i class="c-compute"></i>EC2 compute</span><span><i class="c-storage"></i>EBS gp3</span><span><i class="c-ipv4"></i>Public IPv4</span><span><i class="c-egress"></i>Data transfer out</span>${hasProj ? '<span class="muted">Batang berpola = proyeksi 30 hari ke depan</span>' : ''}</div>`;
   }
 
   async function renderOverview(main) {
@@ -327,7 +357,7 @@
         <div class="card"><div class="label">Forecast bulan ini</div><div class="value">${usd(o.forecast.forecast)}</div><div class="sub">${budget ? `budget ${usd(budget)}` : 'budget belum diatur'}</div></div>
         <div class="card"><div class="label">Run rate</div><div class="value">${usd(o.forecast.runRatePerHour * 24)}/hari</div><div class="sub">${usd(o.forecast.runRatePerHour, 4)}/jam</div></div>
       </div>
-      <div class="section"><h3>Biaya harian, 30 hari terakhir</h3>${chartHtml(o.daily)}</div>
+      <div class="section"><h3>Biaya harian: 30 hari terakhir dan proyeksi 30 hari ke depan</h3>${chartHtml(o.daily, o.projected)}</div>
       <div class="section"><div class="page-head" style="margin:0 0 8px"><h3>VPS</h3><a class="btn small" href="#/integrations">Kelola</a></div>
         ${o.vps.length ? vpsTable(o.vps) : '<p class="muted">Belum ada VPS yang terhubung. <a href="#/integrations">Hubungkan sekarang</a>.</p>'}</div>
       <div class="section"><h3>Anomali, 30 hari terakhir</h3>
