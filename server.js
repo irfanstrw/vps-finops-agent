@@ -169,6 +169,8 @@ route('GET', '/api/cron', async (req, res) => {
 
 // overview: semua server terdaftar dan biayanya, dari ketiga platform
 route('GET', '/api/overview', async (req, res) => {
+  // Status server (running/stopped) dibaca ulang paling cepat tiap menit. Bills tetap sekali sehari.
+  await Promise.all([aws.refreshServers(), azure.refreshServers(), gcp.refreshServers()]);
   const o = cloud.overview(30);
   send(res, 200, {
     ...o,
@@ -195,14 +197,32 @@ const cloudMod = (id) => {
 };
 route('GET', '/api/cloud/:id', async (req, res, p) => {
   const m = cloudMod(p.id);
+  await m.refreshServers();
   send(res, 200, { ...m.publicState(), summary: cloud.summarize(p.id, 30), servers: cloud.servers(p.id) });
 });
-route('PUT', '/api/cloud/:id', async (req, res, p) => send(res, 200, cloudMod(p.id).update(await readBody(req))));
+// Simpan kredensial lalu langsung sinkron, jadi server muncul tanpa klik tambahan.
+route('PUT', '/api/cloud/:id', async (req, res, p) => {
+  const m = cloudMod(p.id);
+  const b = await readBody(req);
+  const st = m.update(b);
+  if (b.clear === true || !st.configured) return send(res, 200, st);
+  try {
+    send(res, 200, await m.sync());
+  } catch (e) {
+    if (e.status && e.status !== 429) throw e;
+    send(res, 200, { ...m.publicState(), error: e.message });
+  }
+});
 route('POST', '/api/cloud/:id/sync', async (req, res, p) => {
   const m = cloudMod(p.id);
   try {
     send(res, 200, await m.sync());
   } catch (e) {
+    // Kalau bills baru saja disinkron, tetap perbarui daftar server supaya status terbaru terlihat.
+    if (e.status === 429) {
+      await m.refreshServers(true);
+      return send(res, 200, { ...m.publicState(), note: 'Status server diperbarui. Bills disinkron ulang paling cepat 10 menit sekali.' });
+    }
     if (e.status) throw e;
     send(res, 200, { ...m.publicState(), error: e.message });
   }

@@ -107,7 +107,7 @@
     const tr = (r) => `<tr><th scope="row"><span class="cell-logo">${L.badge(r.id, 'logo xs')}${esc(r.p.label)}</span></th>
       <td class="num">${r.run.length} / ${r.list.length}</td><td class="num">${r.vcpu}</td><td class="num">${r.mem.toFixed(1)} GiB</td><td class="num">${r.disk} GB</td>
       <td class="num">${usd(r.p.mtd)}</td><td class="num">${usd(r.p.perDay)}</td><td class="num">${usd(r.p.forecastMonth)}</td>
-      <td>${r.p.configured ? (r.p.billed ? 'tagihan asli' : 'estimasi harga') : '<span class="muted">belum tersambung</span>'}</td></tr>`;
+      <td>${r.p.configured ? (r.p.billed ? 'Bills' : 'Estimasi') : '<span class="muted">Belum tersambung</span>'}</td></tr>`;
     return `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Platform</th><th scope="col" class="num">Running / total</th><th scope="col" class="num">vCPU aktif</th><th scope="col" class="num">RAM aktif</th><th scope="col" class="num">Disk</th><th scope="col" class="num">Terpakai</th><th scope="col" class="num">Per hari</th><th scope="col" class="num">Akhir bulan</th><th scope="col">Dasar angka</th></tr></thead>
       <tbody>${rows.map(tr).join('')}</tbody>
       <tfoot><tr><th scope="row">Total</th><td class="num">${o.totals.running} / ${o.servers.length}</td><td class="num">${sum('vcpu')}</td><td class="num">${sum('mem').toFixed(1)} GiB</td><td class="num">${sum('disk')} GB</td><td class="num">${usd(o.totals.mtd)}</td><td class="num">${usd(o.totals.perDay)}</td><td class="num">${usd(o.totals.forecast)}</td><td></td></tr></tfoot></table></div>`;
@@ -129,13 +129,12 @@
     return `<section class="section"><h2>Peluang hemat, sekitar ${usd(total)} per bulan</h2>
       <div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Server</th><th scope="col">Platform</th><th scope="col">Saran</th><th scope="col" class="num">Hemat per bulan</th></tr></thead><tbody>${o.savings
         .map((s) => `<tr><td>${esc(s.server.name)}</td><td>${esc(o.platforms[s.server.provider].label)}</td><td>${esc(s.text)}</td><td class="num">${usd(s.monthly)}</td></tr>`)
-        .join('')}</tbody></table></div>
-      <p class="muted">Saran dari daftar harga. Cek pemakaian CPU dan RAM di konsol cloud sebelum mengganti tipe.</p></section>`;
+        .join('')}</tbody></table></div></section>`;
   }
 
   function anomalySection(o) {
     if (!o.anomalies.length) return '';
-    return `<section class="section"><h2>Lonjakan tagihan, 30 hari terakhir</h2><div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Tanggal</th><th scope="col">Platform</th><th scope="col">Layanan terbesar</th><th scope="col" class="num">Normal</th><th scope="col" class="num">Aktual</th></tr></thead><tbody>${o.anomalies
+    return `<section class="section"><h2>Lonjakan bills, 30 hari terakhir</h2><div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Tanggal</th><th scope="col">Platform</th><th scope="col">Layanan terbesar</th><th scope="col" class="num">Normal</th><th scope="col" class="num">Aktual</th></tr></thead><tbody>${o.anomalies
       .map((a) => `<tr><td>${esc(a.date)}</td><td>${esc(a.label)}</td><td>${esc(a.service)}</td><td class="num">${usd(a.expected)}</td><td class="num">${usd(a.actual)}</td></tr>`)
       .join('')}</tbody></table></div></section>`;
   }
@@ -158,13 +157,14 @@
 
   function onboarding() {
     return `<section class="box onboard"><h2>Sambungkan akun cloud</h2>
-      <p class="muted">Dashboard membaca daftar server dan tagihan dari akun cloud memakai kredensial read-only. Belum punya server? Hitung dulu biayanya di Planning.</p>
+      <p class="muted">Dashboard membaca daftar server dan bills dari akun cloud memakai kredensial read-only. Belum punya server? Hitung dulu biayanya di Planning.</p>
       <div class="row">${IDS.map((id) => `<a class="btn" href="#/integrations/${id}">${L.badge(id, 'logo xs')}${{ aws: 'AWS', azure: 'Azure', gcp: 'Google Cloud' }[id]}</a>`).join('')}<a class="btn primary" href="#/plan">Buka Planning</a></div></section>`;
   }
 
   async function render(main) {
     const o = await A.refreshBalance();
     if (!o) throw new Error('Data dashboard tidak bisa diambil');
+    const live = `<span class="muted live">Diperbarui ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>`;
     if (!o.hasData) {
       main.innerHTML = pageHtml('Dashboard', '', `${onboarding()}${platformCards(o)}${budgetSection(o)}`);
       bindBudget(main);
@@ -184,7 +184,7 @@
       ${savingsSection(o)}
       ${anomalySection(o)}
       ${budgetSection(o)}`;
-    main.innerHTML = pageHtml('Dashboard', `<a class="btn small" href="/api/export/focus.csv" download style="display:inline-flex;align-items:center;text-decoration:none">Unduh tagihan (FOCUS CSV)</a>`, body);
+    main.innerHTML = pageHtml('Dashboard', `<div class="row">${live}<a class="btn small" href="/api/export/focus.csv" download style="display:inline-flex;align-items:center;text-decoration:none">Unduh bills (FOCUS CSV)</a></div>`, body);
     C.bind(main);
     main.querySelectorAll('[data-range]').forEach((b) =>
       b.addEventListener('click', () => {
@@ -221,5 +221,17 @@
     });
   }
 
-  window.Pages.overview = render;
+  // Muat ulang tiap 60 detik selama Dashboard terbuka, supaya server yang baru dinyalakan atau dimatikan langsung terlihat.
+  // Dilewati kalau pengguna sedang mengetik di form atau tab browser tidak aktif.
+  async function page(main) {
+    await render(main);
+    A.setPollTimer(setInterval(() => {
+      if (document.hidden || !location.hash.startsWith('#/overview')) return;
+      if (main.contains(document.activeElement) && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+      const y = main.querySelector('.page')?.scrollTop || 0;
+      render(main).then(() => { const p = main.querySelector('.page'); if (p) p.scrollTop = y; }).catch(() => {});
+    }, 60000));
+  }
+
+  window.Pages.overview = page;
 })();

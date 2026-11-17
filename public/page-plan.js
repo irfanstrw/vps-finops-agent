@@ -50,10 +50,9 @@
       : `<div class="note"><b>Budget ${usd(r.budget)} belum cukup.</b> Pilihan terdekat butuh ${usd(r.options[0]?.monthly || 0)} per bulan, kurang ${usd(r.cheapestGap || 0)}. Turunkan kebutuhan atau naikkan budget.</div>`;
     const chart = C.hbars({ rows: r.options.slice(0, 8).map((o) => ({ label: `${o.label} ${o.type}`, sub: `${o.vcpu} vCPU, ${o.memGiB} GiB${o.tier === 'cadangan' ? ', ruang tumbuh' : ''}`, value: o.monthly, color: COLOR[o.provider] })), label: 'Perbandingan biaya per bulan terhadap budget', ref: r.budget, refLabel: `budget ${usd(r.budget)}` });
     const table = `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Platform</th><th scope="col">Tipe</th><th scope="col">Spesifikasi</th><th scope="col" class="num">Server</th><th scope="col" class="num">Disk dan IP</th><th scope="col" class="num">Transfer dan LB</th><th scope="col" class="num">Per bulan</th><th scope="col">Budget</th><th scope="col"><span class="sr-only">Aksi</span></th></tr></thead><tbody>${r.options
-      .map((o, i) => `<tr><td><span class="cell-logo">${L.badge(o.provider, 'logo xs')}${esc(o.label)}</span></td><td><code>${esc(o.type)}</code>${o.count > 1 ? ` x ${o.count}` : ''}</td><td>${o.vcpu} vCPU, ${o.memGiB} GiB, ${esc(o.arch)}</td><td class="num">${usd(o.parts.server)}</td><td class="num">${usd(o.parts.disk + o.parts.ip)}</td><td class="num">${usd(o.parts.egress + o.parts.lb)}</td><td class="num"><b>${usd(o.monthly)}</b></td><td>${o.fits ? '<span class="s-ok">masuk</span>' : '<span class="s-alert">lewat</span>'}</td><td><button class="btn small" type="button" data-use="${i}">Pakai</button></td></tr>`)
+      .map((o, i) => `<tr><td><span class="cell-logo">${L.badge(o.provider, 'logo xs')}${esc(o.label)}</span></td><td><code>${esc(o.type)}</code>${o.count > 1 ? ` x ${o.count}` : ''}</td><td>${o.vcpu} vCPU, ${o.memGiB} GiB, ${esc(o.arch)}</td><td class="num">${usd(o.parts.server)}</td><td class="num">${usd(o.parts.disk + o.parts.ip)}</td><td class="num">${usd(o.parts.egress + o.parts.lb)}</td><td class="num"><b>${usd(o.monthly)}</b></td><td>${o.fits ? '<span class="s-ok">Sesuai budget</span>' : '<span class="s-alert">Melebihi budget</span>'}</td><td><button class="btn small" type="button" data-use="${i}">Pakai</button></td></tr>`)
       .join('')}</tbody></table></div>`;
-    return `<h2>Kebutuhan</h2>${need}<div class="rec-grid"><div class="card">${best}</div><div class="card"><h3>Perbandingan per bulan</h3>${chart}</div></div><h2 style="margin-top:18px">Semua pilihan</h2>${table}
-      <p class="muted">Kebutuhan dihitung dengan aturan tetap per jenis aplikasi (bukan tebakan model AI), lalu dicocokkan ke daftar harga on-demand. Harga bisa berubah, cek ulang di halaman harga resmi sebelum membeli.</p>`;
+    return `<h2>Kebutuhan</h2>${need}<div class="rec-grid"><div class="card">${best}</div><div class="card"><h3>Perbandingan per bulan</h3>${chart}</div></div><h2 style="margin-top:18px">Semua pilihan</h2>${table}`;
   }
 
   async function runRec(main) {
@@ -135,7 +134,7 @@
       ${donut}${prov}
       <h3 style="margin:16px 0 6px">Kumulatif 12 bulan</h3>${growth}
       <div class="tbl-wrap" tabindex="0" style="margin-top:12px"><table><thead><tr><th scope="col">Sumber daya</th><th scope="col">Rincian</th><th scope="col" class="num">Per bulan</th></tr></thead><tbody>${r.rows.map((x) => `<tr><td>${esc(x.label)}</td><td>${esc(x.detail)}</td><td class="num">${usd(x.monthly)}</td></tr>`).join('')}</tbody></table></div>
-      <p class="muted" style="margin-top:10px">Harga on-demand Linux, 730 jam per bulan. Server sudah termasuk satu IPv4 publik. Cek ulang di halaman harga resmi sebelum dipakai untuk keputusan.</p>`;
+      <p class="muted" style="margin-top:10px">Region US East. Server sudah termasuk satu IPv4 publik.</p>`;
   }
 
   function calc() {

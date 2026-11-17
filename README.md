@@ -41,11 +41,11 @@ Semua ada di **Integrations**, dengan langkah penyiapan di tiap tab.
 
 | Platform | Akses read-only | Catatan |
 |---|---|---|
-| AWS | User IAM dengan `ec2:DescribeInstances`, `ec2:DescribeVolumes`, `ce:GetCostAndUsage` | Isi region server. Cost Explorer menagih sekitar $0.01 per halaman hasil |
+| AWS | User IAM dengan `ec2:DescribeInstances`, `ec2:DescribeVolumes`, `ce:GetCostAndUsage` | Server di us-east-1. Buka Cost Explorer sekali supaya bills tersedia (sampai 24 jam) |
 | Azure | Service principal dengan peran Reader dan Cost Management Reader | Data tagihan tertunda beberapa jam |
 | Google Cloud | Service account dengan peran Compute Viewer | Tagihan asli opsional lewat ekspor penagihan BigQuery |
 
-Sinkron otomatis sekali sehari. Sinkron manual paling cepat tiap 10 menit. Kredensial disimpan di server dan tidak pernah dikirim balik ke browser.
+Setelah kredensial disimpan, server langsung dibaca. Status server (running atau stopped) diperbarui setiap menit selama dashboard dibuka. Bills diperbarui sekali sehari. Semua platform memakai region US East: AWS us-east-1, Azure East US, Google Cloud us-east1.
 
 ## Environment variable
 
@@ -56,7 +56,7 @@ Sinkron otomatis sekali sehari. Sinkron manual paling cepat tiap 10 menit. Krede
 | `CRON_SECRET` | Melindungi `/api/cron` di Vercel |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Redis (diisi otomatis oleh integrasi Vercel) |
 | `AI_PRIMARY_API_KEY`, `AI_BACKUP_API_KEY` | Kunci model AI, menimpa nilai dari UI |
-| `FINOPS_AWS_ACCESS_KEY_ID`, `FINOPS_AWS_SECRET_ACCESS_KEY`, `FINOPS_AWS_REGIONS` | Kredensial dan region AWS |
+| `FINOPS_AWS_ACCESS_KEY_ID`, `FINOPS_AWS_SECRET_ACCESS_KEY` | Kredensial AWS |
 | `FINOPS_AZURE_TENANT_ID`, `FINOPS_AZURE_CLIENT_ID`, `FINOPS_AZURE_CLIENT_SECRET`, `FINOPS_AZURE_SUBSCRIPTION_ID` | Kredensial Azure |
 | `FINOPS_GCP_SERVICE_ACCOUNT_JSON`, `FINOPS_GCP_BILLING_TABLE` | Kredensial Google Cloud dan tabel tagihan (opsional) |
 
@@ -69,6 +69,6 @@ Sinkron otomatis sekali sehari. Sinkron manual paling cepat tiap 10 menit. Krede
 | Perkiraan akhir bulan | Bulan berjalan + rata-rata tagihan 7 hari (atau estimasi harian) x hari tersisa |
 | Rekomendasi Planning | Aturan tetap per jenis aplikasi untuk kebutuhan vCPU dan RAM, lalu tipe server terkecil yang memenuhi di tiap platform |
 
-Region acuan harga: AWS us-east-1, Azure East US, Google Cloud us-central1. Harga adalah salinan statis, jadi cek ulang di halaman harga resmi sebelum dipakai untuk keputusan.
+Harga on-demand region US East, disimpan di `lib/pricing.js`.
 
 Logo AWS, Azure, dan Google Cloud memakai bentuk dari simple-icons dengan warna palet web ini. Proyek ini untuk tugas kuliah, bukan produk komersial.

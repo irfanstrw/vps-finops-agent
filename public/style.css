@@ -406,3 +406,5 @@ tbody th { font-weight: 400; color: var(--text); }
 @media (prefers-reduced-motion: reduce) {
   .hbars .hb, .hbars li { animation: none !important; }
 }
+.flow { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.live { font-size: 12.5px; align-self: center; }
