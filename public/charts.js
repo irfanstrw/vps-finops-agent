@@ -6,6 +6,7 @@
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const usd = (n, d = 2) => {
     if (n == null || !Number.isFinite(n)) return '-';
+    if (Math.abs(n) < 0.00005) n = 0;
     const a = Math.abs(n);
     return (n < 0 ? '-$' : '$') + a.toFixed(a > 0 && a < 0.01 && d < 3 ? 4 : d);
   };

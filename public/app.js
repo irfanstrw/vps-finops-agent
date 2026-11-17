@@ -7,6 +7,7 @@
   const md = (s) => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
   const usd = (n, d = 2) => {
     if (n == null || !Number.isFinite(n)) return '-';
+    if (Math.abs(n) < 0.00005) n = 0; // sisa pembulatan, misalnya -0.0000001
     const a = Math.abs(n);
     return (n < 0 ? '-$' : '$') + a.toFixed(a > 0 && a < 0.01 && d < 3 ? 6 : d);
   };
