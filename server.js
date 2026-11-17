@@ -12,6 +12,9 @@ const automations = require('./lib/automations');
 const demo = require('./lib/demo');
 const llm = require('./lib/llm');
 const aws = require('./lib/aws');
+const azure = require('./lib/azure');
+const gcp = require('./lib/gcp');
+const cloud = require('./lib/cloud');
 const focus = require('./lib/focus');
 
 const PORT = Number(process.env.PORT) || 8080;
@@ -188,7 +191,7 @@ route('GET', '/api/cron', async (req, res) => {
   const secret = process.env.CRON_SECRET;
   if (!secret || !safeEqual(req.headers.authorization || '', `Bearer ${secret}`)) throw new HttpError(401, 'Unauthorized');
   automations.tick();
-  await aws.syncIfDue();
+  await Promise.all([aws.syncIfDue(), azure.syncIfDue(), gcp.syncIfDue()]);
   send(res, 200, { ok: true });
 }, { auth: false });
 
@@ -203,21 +206,66 @@ route('GET', '/api/overview', async (req, res) => {
     budget: agent.budgetFromContext(),
     daily: costs.dailySeries(costs.daysBack(30)),
     projected: costs.projectedDaily(30),
+    cloud: cloud.overview(30),
+    cloudStatus: cloud.status(),
     vps: store.db.vps.map(vpsView),
     anomalies: costs.detectAnomalies({ fromDays: 30 }).slice(0, 10),
   });
 });
 
-// Tagihan AWS asli (Cost Explorer, hanya baca)
-route('GET', '/api/aws', async (req, res) => send(res, 200, { ...aws.publicState(), report: aws.report(30) && { ...aws.report(30), raw: undefined } }));
-route('PUT', '/api/aws', async (req, res) => send(res, 200, aws.update(await readBody(req))));
-route('POST', '/api/aws/sync', async (req, res) => {
+// Sumber cloud (AWS, Azure, Google Cloud): semuanya baca-saja dan memakai pola yang sama.
+const CLOUD = { aws, azure, gcp };
+const cloudMod = (id) => {
+  if (!CLOUD[id]) throw new HttpError(404, 'Sumber tidak dikenal');
+  return CLOUD[id];
+};
+route('GET', '/api/cloud', async (req, res) => send(res, 200, { status: cloud.status(), overview: cloud.overview(30), sources: cloud.SOURCES }));
+route('GET', '/api/cloud/:id', async (req, res, p) => {
+  const m = cloudMod(p.id);
+  const s = cloud.summarize(p.id, 30);
+  send(res, 200, { ...m.publicState(), summary: s && { ...s, series: s.series.map(({ date, total }) => ({ date, total })) } });
+});
+route('PUT', '/api/cloud/:id', async (req, res, p) => send(res, 200, cloudMod(p.id).update(await readBody(req))));
+route('POST', '/api/cloud/:id/sync', async (req, res, p) => {
+  const m = cloudMod(p.id);
   try {
-    send(res, 200, await aws.sync());
+    send(res, 200, await m.sync());
   } catch (e) {
     if (e.status) throw e;
-    send(res, 200, { ...aws.publicState(), error: e.message });
+    send(res, 200, { ...m.publicState(), error: e.message });
   }
+});
+
+// Mode perencanaan: proyeksi biaya dari daftar sumber daya, tanpa server asli dan tanpa biaya.
+route('GET', '/api/plan/catalog', async (req, res) => {
+  send(res, 200, {
+    kinds: Object.fromEntries(Object.entries(cloud.PLAN_ITEMS).map(([k, v]) => [k, { label: v.label, unit: v.unit }])),
+    instances: pricing.INSTANCE_TYPES,
+    region: pricing.REGION,
+    savedPlans: store.db.plans || [],
+  });
+});
+route('POST', '/api/plan/calc', async (req, res) => {
+  const b = await readBody(req);
+  if (!Array.isArray(b.items) || b.items.length > 50) throw new HttpError(400, 'Daftar sumber daya harus berupa array, paling banyak 50 baris');
+  send(res, 200, cloud.plan(b.items, 12));
+});
+route('POST', '/api/plan/save', async (req, res) => {
+  const b = await readBody(req);
+  const name = str(b.name, 80, 'Nama rencana');
+  if (!Array.isArray(b.items) || !b.items.length || b.items.length > 50) throw new HttpError(400, 'Rencana butuh 1 sampai 50 baris sumber daya');
+  const calc = cloud.plan(b.items, 12);
+  store.db.plans ||= [];
+  if (store.db.plans.length >= 50) throw new HttpError(400, 'Maksimum 50 rencana tersimpan. Hapus yang lama dulu.');
+  const plan = { id: store.newId(), name, ts: Date.now(), items: b.items, monthly: calc.monthly };
+  store.db.plans.unshift(plan);
+  store.save();
+  send(res, 201, plan);
+});
+route('DELETE', '/api/plan/:id', async (req, res, p) => {
+  store.db.plans = (store.db.plans || []).filter((x) => x.id !== p.id);
+  store.save();
+  send(res, 200, { ok: true });
 });
 
 // Ekspor biaya dengan kolom FOCUS
@@ -316,6 +364,15 @@ route('POST', '/api/artifacts', async (req, res) => {
   store.save();
   send(res, 201, { id: a.id });
 });
+route('POST', '/api/artifacts/delete', async (req, res) => {
+  const b = await readBody(req);
+  if (!Array.isArray(b.ids) || !b.ids.length || b.ids.length > 500 || b.ids.some((x) => typeof x !== 'string')) throw new HttpError(400, 'Daftar id artifact tidak valid');
+  const drop = new Set(b.ids);
+  const before = store.db.artifacts.length;
+  store.db.artifacts = store.db.artifacts.filter((a) => !drop.has(a.id));
+  store.save();
+  send(res, 200, { ok: true, deleted: before - store.db.artifacts.length });
+});
 route('DELETE', '/api/artifacts/:id', async (req, res, p) => {
   findOr404(store.db.artifacts, p.id, 'Artifact');
   store.db.artifacts = store.db.artifacts.filter((a) => a.id !== p.id);
@@ -340,11 +397,19 @@ route('DELETE', '/api/context-files/:id', async (req, res, p) => {
 });
 
 // settings
+// Anggaran: tambah, kurangi, atau tetapkan total. Nilai diatur manual oleh pemilik.
 route('POST', '/api/settings/topup', async (req, res) => {
-  const n = Number((await readBody(req)).amount);
-  if (!Number.isFinite(n) || n <= 0 || n > 100000) throw new HttpError(400, 'Jumlah harus antara 1 dan 100000');
+  const b = await readBody(req);
+  const n = Number(b.amount);
+  const LIM = 10000000;
+  if (b.mode === 'set') {
+    if (!Number.isFinite(n) || n < 0 || n > LIM) throw new HttpError(400, `Total anggaran harus antara 0 dan ${LIM}`);
+    return send(res, 200, costs.setBudgetTotal(n));
+  }
+  if (!Number.isFinite(n) || n === 0 || Math.abs(n) > LIM) throw new HttpError(400, `Jumlah harus bukan nol dan paling besar ${LIM}`);
+  const amount = b.mode === 'subtract' ? -Math.abs(n) : Math.abs(n);
   store.db.settings.topups ||= [];
-  store.db.settings.topups.push({ ts: Date.now(), amount: n });
+  store.db.settings.topups.push({ ts: Date.now(), amount });
   store.save();
   send(res, 200, costs.balance());
 });
@@ -504,7 +569,7 @@ if (require.main === module) {
     try {
       await prepare();
       automations.tick();
-      await aws.syncIfDue();
+      await Promise.all([aws.syncIfDue(), azure.syncIfDue(), gcp.syncIfDue()]);
       await store.persist();
     } catch (e) {
       console.error('Automation tick failed:', e);

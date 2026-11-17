@@ -10,6 +10,7 @@
 <body>
   <div id="login" class="login hidden">
     <form id="loginForm" class="login-card">
+      <span id="loginLogo"></span>
       <h1>VPS FinOps Agent</h1>
       <p class="muted">Biaya server kamu, dihitung dengan harga AWS us-east-1 on-demand.</p>
       <label>Password
@@ -24,7 +25,7 @@
     <a class="skip" href="#" id="skip">Lewati ke konten</a>
     <header class="topbar">
       <button id="menuBtn" class="btn small menu-btn" type="button" aria-expanded="false" aria-controls="sidebar">Menu</button>
-      <a class="brand" href="#/overview">VPS FinOps Agent</a>
+      <a class="brand" href="#/overview"><span id="brandLogo"></span>VPS FinOps Agent</a>
       <div class="top-right">
         <span id="balancePill" class="balance"></span>
         <button id="themeBtn" class="btn small" type="button">Mode terang</button>
@@ -37,6 +38,7 @@
         <div class="nav-label">Analisis</div>
         <a href="#/overview" data-nav="overview">Ringkasan</a>
         <a href="#/tasks" data-nav="tasks">Tasks</a>
+        <a href="#/plan" data-nav="plan">Perencanaan</a>
         <a href="#/automations" data-nav="automations">Automations</a>
         <div class="nav-label">Data dan pengaturan</div>
         <a href="#/artifacts" data-nav="artifacts">Artifacts</a>
@@ -52,6 +54,11 @@
   </div>
 
   <div id="modal" class="modal hidden"><div class="modal-card" id="modalCard" role="dialog" aria-modal="true" aria-label="Dialog" tabindex="-1"></div></div>
+  <script src="/logos.js" defer></script>
+  <script src="/charts.js" defer></script>
   <script src="/app.js" defer></script>
+  <script src="/page-overview.js" defer></script>
+  <script src="/page-plan.js" defer></script>
+  <script src="/page-cloud.js" defer></script>
 </body>
 </html>

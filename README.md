@@ -1,69 +1,76 @@
 # VPS FinOps Agent
 
-A FinOps dashboard and chat agent for VPS servers. VPS usage is priced with AWS **us-east-1 (N. Virginia)** on-demand rates and deducted from a credit balance.
+Dashboard FinOps untuk VPS dan akun cloud. Biaya VPS dihitung dari pemakaian nyata dengan harga AWS us-east-1 on-demand. Tagihan asli dari AWS, Azure, dan Google Cloud ditarik lewat API baca-saja. Semuanya tampil terpusat, bisa direncanakan tanpa server, dan bisa diekspor dengan kolom FOCUS.
 
-## Deploy to Vercel
+## Fitur
 
-1. Push this folder to a GitHub repository.
-2. In Vercel: **Add New → Project → Import** the repository. Leave Framework Preset as **Other** and the build settings empty (`vercel.json` already configures them).
-3. In the project: **Storage → Create Database → Upstash for Redis** (free plan) and connect it to the project. This adds `KV_REST_API_URL` and `KV_REST_API_TOKEN` automatically.
-4. In **Settings → Environment Variables**, add:
-   - `ADMIN_PASSWORD`: your login password
-   - `SESSION_SECRET`: a long random string
-   - `CRON_SECRET`: a long random string (protects the daily automation cron)
-5. **Deployments → Redeploy** so the variables take effect.
+| Fitur | Isi |
+|---|---|
+| Ringkasan | Perkiraan biaya akhir bulan, grafik harian dan kumulatif dengan forecast harian, filter sumber dan rentang, rincian per layanan |
+| Sumber data | VPS (agent), AWS Cost Explorer, Azure Cost Management, Google Cloud (ekspor BigQuery) |
+| Perencanaan | Hitung biaya dari daftar sumber daya (EC2, EBS, S3, data transfer, NAT Gateway, load balancer) tanpa server asli dan tanpa biaya. Rencana bisa disimpan dan dibandingkan |
+| Anggaran | Uang yang kamu sediakan untuk biaya server. Bisa ditambah, dikurangi, atau ditetapkan ulang |
+| Chat agent | Jawaban dengan grafik, kartu angka, dan tombol pertanyaan lanjutan. Model AI opsional dengan cadangan |
+| Automations | Cek anomali harian, peringatan budget, review rightsizing |
+| Artifacts | Laporan tersimpan, bisa dihapus satu per satu atau sekaligus |
+| Ekspor | CSV dengan nama kolom FOCUS, tidak terkunci pada satu vendor |
 
-The site is then available at `https://<project>.vercel.app`.
+## Deploy ke Vercel
 
-Without Redis, data on Vercel is lost between requests. The dashboard needs the Redis store to work there.
+1. Push folder ini ke GitHub.
+2. Di Vercel: **Add New, Project, Import** repository. Application Preset: **Other**, kolom build dikosongkan.
+3. **Storage, Create Database, Upstash for Redis** (Free), prefix `KV`, lalu hubungkan ke project.
+4. **Settings, Environment Variables**: `ADMIN_PASSWORD`, `SESSION_SECRET`, `CRON_SECRET`.
+5. **Deployments, Redeploy**.
 
-## Run locally
+Tanpa Redis, data di Vercel hilang di antara permintaan.
 
-Requires Node.js 18+. No `npm install` needed.
+## Jalankan lokal
+
+Butuh Node.js 18 atau lebih baru, tanpa `npm install`.
 
 ```cmd
 npm start
 ```
 
-Open http://localhost:8080. Default password: `admin123`. Locally, data is stored in `data/db.json`.
+Buka http://localhost:8080. Password bawaan `admin123`. Data lokal ada di `data/db.json`.
 
-## Environment variables
+## Menyambungkan sumber
 
-| Variable | Default | Purpose |
+Semua ada di **Integrations**, dengan petunjuk langkah demi langkah di tiap tab.
+
+| Sumber | Akses yang dibutuhkan | Catatan |
 |---|---|---|
-| `ADMIN_PASSWORD` | admin123 | Login password |
-| `SESSION_SECRET` | derived from password | Signs session cookies |
-| `CRON_SECRET` | | Required for the daily `/api/cron` call on Vercel |
-| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | | Upstash Redis (set by the Vercel integration). Also accepts `UPSTASH_REDIS_REST_URL`/`_TOKEN` |
-| `PUBLIC_URL` | (auto) | URL used in the agent install command |
-| `AI_PRIMARY_API_KEY`, `AI_BACKUP_API_KEY` | | AI model keys (override the values set in the UI) |
-| `PORT`, `HOST`, `DATA_FILE` | 8080, 0.0.0.0, data/db.json | Local server only |
+| VPS | Perintah install agent (systemd, bash, curl) | Agent hanya membaca CPU, RAM, disk, network |
+| AWS | User IAM dengan `ce:GetCostAndUsage` | AWS menagih sekitar $0.01 per halaman hasil. Sinkron otomatis sekali sehari |
+| Azure | Service principal dengan peran Cost Management Reader | Data tertunda beberapa jam |
+| Google Cloud | Service account (BigQuery Data Viewer dan Job User) dan tabel ekspor penagihan | Ekspor harus diaktifkan dulu, data lama tidak diisi ulang |
 
-## Connect a VPS
+Sinkron manual dibatasi paling cepat tiap 10 menit. Kredensial disimpan di server dan tidak pernah dikirim balik ke browser.
 
-**Integrations → VPS → Connect VPS** → enter a name → run the command shown on the VPS over SSH. The page has step-by-step instructions and troubleshooting. The agent is read-only and runs as an unprivileged systemd service.
+## Environment variable
 
-## VPS sample AWS
-
-**Integrations → VPS → Tambah VPS sample AWS**: pick an EC2 instance type and EBS size. A sample VPS has no history. Its monthly cost is a projection that is added to the forecast only after **Aktifkan proyeksi** is clicked.
-
-## AI model (optional)
-
-**Integrations → AI Model**: configure a primary and a backup model. Any OpenAI-compatible Chat Completions API works (Gemini, Groq, OpenRouter, OpenAI, custom).
-
-Order: primary model → backup model → rule-based agent. The model only picks the analysis tool and writes a short summary. All numbers come from code.
-
-## Automations
-
-Due automations run on every dashboard request and once a day through Vercel Cron (`/api/cron`, 01:00 UTC). Locally they also run every minute.
-
-## Cost model
-
-| Component | Rate (us-east-1) |
+| Variable | Fungsi |
 |---|---|
-| EC2 | cheapest instance with at least the VPS vCPU and RAM, same architecture |
-| EBS gp3 | $0.08/GB-month |
-| Public IPv4 | $0.005/hour |
-| Data Transfer Out | 100 GB/month free, then $0.09/GB |
+| `ADMIN_PASSWORD` | Password login (bawaan `admin123`) |
+| `SESSION_SECRET` | Penanda tangan cookie sesi |
+| `CRON_SECRET` | Melindungi `/api/cron` di Vercel |
+| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Redis (diisi otomatis oleh integrasi Vercel) |
+| `PUBLIC_URL` | Alamat dashboard di perintah install agent |
+| `AI_PRIMARY_API_KEY`, `AI_BACKUP_API_KEY` | Kunci model AI, menimpa nilai dari UI |
+| `FINOPS_AWS_ACCESS_KEY_ID`, `FINOPS_AWS_SECRET_ACCESS_KEY` | Kredensial AWS |
+| `FINOPS_AZURE_TENANT_ID`, `FINOPS_AZURE_CLIENT_ID`, `FINOPS_AZURE_CLIENT_SECRET`, `FINOPS_AZURE_SUBSCRIPTION_ID` | Kredensial Azure |
+| `FINOPS_GCP_SERVICE_ACCOUNT_JSON`, `FINOPS_GCP_BILLING_TABLE` | Kredensial Google Cloud |
 
-Prices are a static snapshot in `lib/pricing.js`.
+## Model biaya VPS
+
+| Komponen | Tarif (us-east-1) |
+|---|---|
+| EC2 | Instance yang paling pas dengan vCPU dan RAM VPS, arsitektur sama |
+| EBS gp3 | $0.08 per GB-bulan |
+| Public IPv4 | $0.005 per jam |
+| Data transfer keluar | 100 GB per bulan gratis, lalu $0.09 per GB |
+
+Harga adalah salinan statis di `lib/pricing.js` dan `lib/cloud.js`. Cek ulang di halaman harga AWS sebelum dipakai untuk keputusan.
+
+Estimasi VPS bukan tagihan. Tagihan asli hanya muncul dari sumber AWS, Azure, dan Google Cloud, dan keduanya ditampilkan terpisah.

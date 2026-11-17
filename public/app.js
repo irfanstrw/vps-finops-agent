@@ -90,6 +90,11 @@
       box.querySelectorAll('button').forEach((b) => (b.disabled = true));
       try {
         await onYes();
+        // Berhasil: bersihkan kotak konfirmasi. Tombol aslinya dikembalikan hanya kalau masih relevan
+        // (kalau elemennya sudah dibuang atau disembunyikan oleh halaman, biarkan apa adanya).
+        box.remove();
+        delete btn.dataset.confirming;
+        if (btn.isConnected && !btn.dataset.keepHidden) btn.classList.remove('hidden');
       } catch (err) {
         toast(err.message);
         close();
@@ -167,6 +172,12 @@
   });
   applyTheme();
 
+  // Logo produk di header dan halaman masuk (skrip logos.js dimuat sebelum file ini).
+  if (window.Logos) {
+    $('#brandLogo').innerHTML = window.Logos.product('logo');
+    $('#loginLogo').innerHTML = window.Logos.product('logo');
+  }
+
   // ---------- kerangka ----------
   let chats = [];
   function setNav(open) {
@@ -190,12 +201,23 @@
     $('#recent').innerHTML = chats.length
       ? chats.map((c) => `<a href="#/chat/${esc(c.id)}" ${c.id === cur ? 'aria-current="page"' : ''} title="${esc(c.title)}">${esc(c.title)}</a>`).join('')
       : '<span class="muted" style="padding:0 10px">Belum ada percakapan</span>';
-    $('#clearChats').classList.toggle('hidden', !chats.length);
+    // Tombol "Hapus semua" hanya ada kalau ada percakapan. Konfirmasi yang sedang terbuka ikut hilang bila daftar kosong.
+    const clear = $('#clearChats');
+    if (chats.length) delete clear.dataset.keepHidden;
+    clear.classList.toggle('hidden', !chats.length || !!clear.dataset.confirming);
+    if (!chats.length) {
+      $('#sidebar .confirm-inline')?.remove();
+      delete clear.dataset.confirming;
+    }
   }
   $('#clearChats').addEventListener('click', (e) =>
     confirmInline(e.currentTarget, 'Yakin ingin hapus?', 'Ya, hapus semua', async () => {
       await api('DELETE', '/api/chats');
       toast('Semua percakapan dihapus');
+      chats = [];
+      $('#recent').innerHTML = '<span class="muted" style="padding:0 10px">Belum ada percakapan</span>';
+      $('#clearChats').dataset.keepHidden = '1';
+      $('#clearChats').classList.add('hidden');
       if (location.hash === '#/chat/new') router();
       else location.hash = '#/chat/new';
     })
@@ -214,7 +236,7 @@
     else location.hash = '#/chat/new';
   });
 
-  const TITLES = { chat: 'Chat', overview: 'Ringkasan', tasks: 'Tasks', automations: 'Automations', artifacts: 'Artifacts', context: 'Context files', integrations: 'Integrations' };
+  const TITLES = { chat: 'Chat', overview: 'Ringkasan', plan: 'Perencanaan', tasks: 'Tasks', automations: 'Automations', artifacts: 'Artifacts', context: 'Context files', integrations: 'Integrations' };
   function setActiveNav(name) {
     document.querySelectorAll('.nav a').forEach((a) => {
       if (a.dataset.nav === name) a.setAttribute('aria-current', 'page');
@@ -232,6 +254,7 @@
     main.innerHTML = '<div class="page"><p class="muted" role="status">Memuat…</p></div>';
     try {
       if (page === 'chat') await renderChat(main, id);
+      else if (window.Pages?.[page]) await window.Pages[page](main, id);
       else if (page === 'overview') await renderOverview(main);
       else if (page === 'tasks') await renderTasks(main);
       else if (page === 'automations') await renderAutomations(main);
@@ -261,6 +284,16 @@
       if (b.type === 'p') return `<p>${md(b.text)}</p>`;
       if (b.type === 'h') return `<h2>${md(b.text)}</h2>`;
       if (b.type === 'ul') return `<ul>${b.items.map((i) => `<li>${md(i)}</li>`).join('')}</ul>`;
+      if (b.type === 'stats') return `<div class="stats">${b.items.map((s) => `<div class="stat"><div class="sv">${esc(s.value)}</div><div class="sl">${esc(s.label)}</div></div>`).join('')}</div>`;
+      if (b.type === 'follow') return `<div class="followups" role="group" aria-label="Pertanyaan lanjutan">${b.items.map((q) => `<button class="btn small" type="button" data-suggest="${esc(q)}">${esc(q)}</button>`).join('')}</div>`;
+      if (b.type === 'chart' && window.Charts) {
+        const C = window.Charts;
+        let g = '';
+        if (b.kind === 'bars') g = C.bars({ rows: b.rows.map((r) => ({ ...r, label: String(r.date).slice(5) })), series: b.series, label: b.title, height: 170 });
+        else if (b.kind === 'line') g = C.line({ rows: b.rows.map((r) => ({ ...r })), label: b.title, height: 170, refLine: b.ref?.value, refLabel: b.ref?.label });
+        else if (b.kind === 'donut') g = C.donut({ slices: b.slices, label: b.title, size: 130 });
+        return g ? `<figure class="blk"><figcaption class="blk-title">${esc(b.title)}</figcaption>${g}</figure>` : '';
+      }
       if (b.type === 'table')
         return `<div class="tbl-wrap" tabindex="0"><table><thead><tr>${b.columns.map((c) => `<th scope="col">${esc(c)}</th>`).join('')}</tr></thead><tbody>${b.rows
           .map((row) => `<tr>${row.map((c) => `<td>${md(c)}</td>`).join('')}</tr>`)
@@ -270,6 +303,7 @@
     const steps = r.steps?.length
       ? `<details class="thinking"><summary>Lihat proses analisis (${r.steps.length} langkah)</summary><ol>${r.steps.map((s) => `<li>${md(s)}</li>`).join('')}</ol></details>`
       : '';
+    queueMicrotask(() => window.Charts && window.Charts.bind(document));
     return `<div class="reply">${steps}${blocks.join('')}</div>`;
   }
 
@@ -559,7 +593,11 @@
 
   // ---------- artifacts ----------
   async function renderArtifacts(main, id) {
-    if (id) {
+    if (id) return renderArtifactDetail(main, id);
+    return window.Pages.artifacts(main);
+  }
+  async function renderArtifactDetail(main, id) {
+    {
       const a = await api('GET', `/api/artifacts/${encodeURIComponent(id)}`);
       main.innerHTML = pageHtml(
         esc(a.title),
@@ -580,15 +618,7 @@
           location.hash = '#/artifacts';
         })
       );
-      return;
     }
-    const list = await api('GET', '/api/artifacts');
-    const body = list.length
-      ? `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Judul</th><th scope="col">Sumber</th><th scope="col">Dibuat</th></tr></thead><tbody>${list
-          .map((a) => `<tr><td><a href="#/artifacts/${esc(a.id)}">${esc(a.title)}</a></td><td>${esc(a.source.split(':')[0])}</td><td>${esc(fmtTime(a.ts))}</td></tr>`)
-          .join('')}</tbody></table></div>`
-      : '<p class="muted">Belum ada artifact. Klik "Simpan sebagai artifact" di bawah jawaban agent, atau jalankan sebuah automation.</p>';
-    main.innerHTML = pageHtml('Artifacts', '<span class="muted">Laporan tersimpan dari chat dan automation</span>', body);
   }
 
   // ---------- context files ----------
@@ -636,17 +666,17 @@
 
   // ---------- integrations ----------
   async function renderIntegrations(main, tab) {
-    tab = ['ai', 'aws'].includes(tab) ? tab : 'vps';
+    tab = ['ai', 'aws', 'azure', 'gcp'].includes(tab) ? tab : 'vps';
     const cur = (t) => (tab === t ? 'aria-current="page"' : '');
-    const tabs = `<nav class="tabs" aria-label="Integrations"><a href="#/integrations/vps" ${cur('vps')}>VPS</a><a href="#/integrations/aws" ${cur('aws')}>Akun AWS</a><a href="#/integrations/ai" ${cur('ai')}>AI Model</a></nav>`;
+    const tabs = `<nav class="tabs" aria-label="Integrations"><a href="#/integrations/vps" ${cur('vps')}>VPS</a><a href="#/integrations/aws" ${cur('aws')}>AWS</a><a href="#/integrations/azure" ${cur('azure')}>Azure</a><a href="#/integrations/gcp" ${cur('gcp')}>Google Cloud</a><a href="#/integrations/ai" ${cur('ai')}>AI Model</a></nav>`;
     if (tab === 'ai') return renderAi(main, tabs);
-    if (tab === 'aws') return renderAws(main, tabs);
+    if (tab === 'aws' || tab === 'azure' || tab === 'gcp') return window.App.renderCloudTab(main, tabs, tab);
 
     const [list, p] = await Promise.all([api('GET', '/api/vps'), api('GET', '/api/pricing')]);
     const origin = location.origin;
     const isLocal = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
     const body = `${tabs}
-      <p class="muted">Agent membaca pemakaian CPU, RAM, disk, dan network dari VPS. Pemakaian itu dihitung dengan harga instance EC2 termurah yang setara di ${esc(p.region.name)}, lalu dipotong dari saldo kredit. VPS sample AWS tidak punya riwayat: biayanya berupa proyeksi, dan baru masuk forecast setelah diaktifkan.</p>
+      <p class="muted">Agent membaca pemakaian CPU, RAM, disk, dan network dari VPS. Pemakaian itu dihitung dengan harga instance EC2 yang setara spesifikasinya di ${esc(p.region.name)}, lalu dipotong dari saldo kredit. VPS sample AWS tidak punya riwayat: biayanya berupa proyeksi, dan baru masuk forecast setelah diaktifkan.</p>
 
       <section class="section"><h2>VPS terdaftar</h2>
         ${list.length ? vpsTable(list, true) : '<p class="muted">Belum ada VPS. Klik Connect VPS untuk server asli, atau Tambah VPS sample AWS untuk melihat proyeksi biaya tipe EC2 tertentu.</p>'}</section>
@@ -679,7 +709,7 @@
 
       <section class="section"><h2>Harga yang dipakai (AWS ${esc(p.region.code)}, Linux on-demand)</h2>
         <ul>
-          <li>EC2: instance termurah dengan vCPU dan RAM minimal sama dengan VPS, arsitektur CPU sama (x86_64 atau arm64).</li>
+          <li>EC2: instance dengan vCPU dan RAM yang paling pas dengan VPS, arsitektur CPU sama (x86_64 atau arm64).</li>
           <li>EBS gp3: ${usd(p.ebsGp3)} per GB-bulan, dari total ukuran disk.</li>
           <li>Public IPv4: ${usd(p.ipv4Hourly, 3)} per jam.</li>
           <li>Data transfer out: ${esc(p.egressFreeGB)} GB per bulan pertama gratis, selanjutnya ${usd(p.egressPerGB)} per GB.</li>
@@ -997,6 +1027,11 @@
       if (Date.now() - start > 15 * 60000) clearInterval(pollTimer);
     }, 4000);
   }
+
+  // ---------- titik sambung untuk halaman di file terpisah ----------
+  window.App = { $, esc, md, usd, fmtTime, ago, api, toast, copy, codeBox, confirmInline, openModal, closeModal, pageHtml, renderReply, refreshBalance, refreshRecent, router, renderIntegrations, renderArtifactDetail, vpsTable, setPollTimer: (t) => (pollTimer = t), getPollTimer: () => pollTimer };
+  const PAGES = (window.Pages = window.Pages || {});
+  window.App.pages = PAGES;
 
   // ---------- mulai ----------
   async function boot() {
