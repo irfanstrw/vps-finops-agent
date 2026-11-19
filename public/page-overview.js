@@ -32,7 +32,7 @@
         ${meter}
       </div>
       <dl class="facts">
-        <div><dt>Biaya per hari</dt><dd>${usd(t.perDay)}<small>${IDS.some((id) => o.platforms[id].billed && o.platforms[id].perDay !== o.platforms[id].estDaily) ? 'rata-rata bills 7 hari terakhir' : 'dari harga server saat ini'}</small></dd></div>
+        <div><dt>Biaya per hari</dt><dd>${usd(t.perDay)}<small>mulai hari ini, dari kondisi server sekarang</small></dd></div>
         <div><dt>Sudah terpakai</dt><dd>${usd(t.mtd)}<small>${t.credit > 0 ? `${usd(t.credit)} ditutup credits, dibayar ${usd(Math.max(0, t.mtd - t.credit))}` : `1 sampai ${new Date().getUTCDate()} ${esc(monthName(o.month))}`}</small></dd></div>
         <div><dt>Sisa bulan ini</dt><dd>${usd(t.remaining)}<small>${o.daysLeft} hari x ${usd(t.perDay)}</small></dd></div>
         <div><dt>Server running</dt><dd>${t.running} dari ${t.servers}</dd></div>
@@ -120,6 +120,21 @@
       <tfoot><tr><th scope="row">Total</th><td class="num">${o.totals.running} / ${o.servers.length}</td><td class="num">${sum('vcpu')}</td><td class="num">${sum('mem').toFixed(1)} GiB</td><td class="num">${sum('disk')} GB</td><td class="num">${usd(o.totals.mtd)}</td><td class="num">${usd(o.totals.perDay)}</td><td class="num">${usd(o.totals.forecast)}</td><td></td></tr></tfoot></table></div>`;
   }
 
+  // Asal bills bulan ini per region dan komponen. Bills mencakup seluruh akun, termasuk region lain
+  // dan server yang sudah dihapus, jadi bisa lebih besar dari daftar server di atas.
+  function billSources(o) {
+    const u = o.platforms.aws.usage;
+    if (!u || !u.length) return '';
+    const total = u.reduce((a, x) => a + x.amount, 0);
+    const listed = new Set(o.servers.filter((s) => s.provider === 'aws').map((s) => s.region));
+    const other = u.filter((x) => !listed.has(x.region)).reduce((a, x) => a + x.amount, 0);
+    return `<section class="section"><h2>Asal bills AWS bulan ini</h2>
+      ${other > 0.005 ? `<p class="note">${usd(other)} dari ${usd(total)} berasal dari region yang tidak punya server terdaftar di dashboard ini. Biasanya server, disk, atau IP di region lain, atau yang sudah dihapus.</p>` : ''}
+      <div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Komponen</th><th scope="col">Region</th><th scope="col">Usage type</th><th scope="col" class="num">Bulan ini</th></tr></thead><tbody>${u
+        .map((x) => `<tr><td>${esc(x.kind)}</td><td>${esc(x.region)}${listed.has(x.region) ? '' : ' <span class="muted">(tidak terdaftar)</span>'}</td><td><code>${esc(x.usageType)}</code></td><td class="num">${usd(x.amount)}</td></tr>`)
+        .join('')}</tbody><tfoot><tr><th scope="row" colspan="3">Total</th><td class="num">${usd(total)}</td></tr></tfoot></table></div></section>`;
+  }
+
   function serverTable(o) {
     const list = o.servers.filter((s) => state.filter === 'all' || s.provider === state.filter).sort((a, b) => b.monthly - a.monthly);
     if (!list.length) return '<p class="muted">Tidak ada server untuk filter ini.</p>';
@@ -188,6 +203,7 @@
         <section class="card wide"><div class="card-head"><h2>Server dengan biaya terbesar</h2><span class="muted">kalau kondisinya tetap sebulan penuh</span></div>${topChart(o)}</section>
       </div>
       <section class="section"><h2>Penggunaan per platform</h2>${usageTable(o)}</section>
+      ${billSources(o)}
       <section class="section"><div class="card-head"><h2>Server terdaftar</h2><label class="row" style="gap:6px">Filter<select id="srvFilter" style="width:auto">${filters}</select></label></div><div id="srvHost">${serverTable(o)}</div></section>
       ${savingsSection(o)}
       ${anomalySection(o)}
