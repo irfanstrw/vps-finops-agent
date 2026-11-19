@@ -96,7 +96,6 @@
   // Grafik 4: biaya bulan ini per server (sudah terpakai + sisa bulan), satuannya sama dengan total bill.
   function topChart(o) {
     const rows = [...o.servers].sort((a, b) => b.month - a.month).slice(0, 6).map((s) => ({ label: s.name, sub: `${o.platforms[s.provider].label}, ${s.type}, ${s.state}`, value: s.month, color: COLOR[s.provider] }));
-    for (const u of o.unassigned) rows.push({ label: `${u.label}: di luar server terdaftar`, sub: 'server terhapus, region lain, atau snapshot', value: u.used, color: COLOR[u.provider] });
     rows.sort((a, b) => b.value - a.value);
     if (!rows.length) return '<p class="chart-empty">Belum ada server.</p>';
     return C.hbars({ rows: rows.slice(0, 6), label: 'Biaya bulan ini per server' });
@@ -125,8 +124,7 @@
   // Kolom: sudah terpakai + sisa bulan ini = bulan ini. Penjumlahan semua baris sama dengan total bill di atas.
   function serverTable(o) {
     const list = o.servers.filter((s) => state.filter === 'all' || s.provider === state.filter).sort((a, b) => b.month - a.month);
-    const extra = o.unassigned.filter((u) => state.filter === 'all' || u.provider === state.filter);
-    if (!list.length && !extra.length) return '<p class="muted">Tidak ada server untuk filter ini.</p>';
+    if (!list.length) return '<p class="muted">Tidak ada server untuk filter ini.</p>';
     const now = (s) => (s.state === 'running' ? `${usd(s.daily)} per hari` : `${usd(s.daily)} per hari, disk saja`);
     const PART = { compute: 'Compute (server running)', disk: 'Disk', ip: 'IPv4 publik', snapshot: 'Snapshot disk', transfer: 'Data transfer', other: 'Lainnya (tidak terinci)' };
     const rows = list
@@ -135,12 +133,9 @@
         <td class="num">${usd(s.used)}</td><td class="num">${usd(s.rest)}</td><td class="num"><b>${usd(s.month)}</b></td></tr>
         ${(s.breakdown || []).map((b) => `<tr class="sub"><td colspan="6">${esc(PART[b.key])}${b.key === 'disk' ? ` ${s.diskGB} GB` : ''}</td><td class="num">${usd(b.used)}</td><td class="num">${usd(b.rest)}</td><td class="num">${usd(b.used + b.rest)}</td></tr>`).join('')}`)
       .join('');
-    const extraRows = extra
-      .map((u) => `<tr><td colspan="6">${esc(u.label)}: biaya di luar server terdaftar<br><span class="muted">Server yang sudah dihapus, region lain, snapshot, atau IP yang tidak terpakai</span></td><td class="num">${usd(u.used)}</td><td class="num">${usd(0)}</td><td class="num"><b>${usd(u.used)}</b></td></tr>`)
-      .join('');
-    const sum = (k) => list.reduce((a, s) => a + s[k], 0) + (k === 'rest' ? 0 : extra.reduce((a, u) => a + u.used, 0));
+    const sum = (k) => list.reduce((a, s) => a + s[k], 0);
     return `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Server</th><th scope="col">Platform</th><th scope="col">Lokasi</th><th scope="col">Tipe</th><th scope="col">Spesifikasi</th><th scope="col">Status</th><th scope="col" class="num">Sudah terpakai</th><th scope="col" class="num">Sisa bulan ini</th><th scope="col" class="num">Bulan ini</th></tr></thead>
-      <tbody>${rows}${extraRows}</tbody>
+      <tbody>${rows}</tbody>
       <tfoot><tr><th scope="row" colspan="6">Total</th><td class="num">${usd(sum('used'))}</td><td class="num">${usd(sum('rest'))}</td><td class="num">${usd(sum('used') + sum('rest'))}</td></tr></tfoot></table></div>`;
   }
 
