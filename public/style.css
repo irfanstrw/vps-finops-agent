@@ -439,3 +439,10 @@ tbody th { font-weight: 400; color: var(--text); }
 @media (max-width: 800px) { .lc { grid-template-columns: 44px 1fr; } }
 .card h3 { margin: 0 0 8px; }
 .card table td:nth-child(2) { color: var(--muted); }
+/* Rincian komponen di bawah tiap server */
+tr.sub td { border-bottom: 0; padding-top: 2px; padding-bottom: 2px; color: var(--muted); font-size: 12.5px; }
+tr.sub td:first-child { padding-left: 32px; position: relative; }
+tr.sub td:first-child::before { content: ""; position: absolute; left: 18px; top: 50%; width: 8px; border-top: 1px solid var(--field); }
+tr.srv td { border-top: 1px solid var(--edge); border-bottom: 0; }
+tr.sub:last-of-type td { padding-bottom: 8px; }
+tbody tr.sub:hover { background: transparent; }
