@@ -126,7 +126,7 @@
     const list = o.servers.filter((s) => state.filter === 'all' || s.provider === state.filter).sort((a, b) => b.month - a.month);
     if (!list.length) return '<p class="muted">Tidak ada server untuk filter ini.</p>';
     const now = (s) => (s.state === 'running' ? `${usd(s.daily)} per hari` : `${usd(s.daily)} per hari, disk saja`);
-    const PART = { compute: 'Compute (server running)', disk: 'Disk', ip: 'IPv4 publik', snapshot: 'Snapshot disk', transfer: 'Data transfer', other: 'Lainnya (tidak terinci)' };
+    const PART = { compute: 'Compute', disk: 'Disk', ip: 'IPv4 publik', snapshot: 'Snapshot', transfer: 'Data transfer', other: 'Lainnya' };
     const rows = list
       .map((s) => `<tr class="srv"><td>${esc(s.name)}</td><td><span class="cell-logo">${L.badge(s.provider, 'logo xs')}${esc(o.platforms[s.provider].label)}</span></td><td>${esc(s.location)}</td><td><code>${esc(s.type)}</code></td>
         <td>${s.vcpu ? `${s.vcpu} vCPU, ${s.memGiB} GiB, ` : ''}${s.diskGB} GB disk</td><td><span class="status s-${esc(s.state)}">${esc(STATE[s.state] || s.state)}</span><br><span class="muted">${now(s)}</span></td>
