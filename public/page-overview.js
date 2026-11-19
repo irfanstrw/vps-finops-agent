@@ -93,11 +93,13 @@
     return C.donut({ slices, label: 'Porsi perkiraan akhir bulan per platform', size: 140, center: { top: usd(o.totals.forecast), bottom: 'akhir bulan' } });
   }
 
-  // Grafik 4: server dengan estimasi biaya bulanan terbesar.
+  // Grafik 4: biaya bulan ini per server (sudah terpakai + sisa bulan), satuannya sama dengan total bill.
   function topChart(o) {
-    const top = [...o.servers].sort((a, b) => b.monthly - a.monthly).slice(0, 6);
-    if (!top.length) return '<p class="chart-empty">Belum ada server.</p>';
-    return C.hbars({ rows: top.map((s) => ({ label: s.name, sub: `${o.platforms[s.provider].label}, ${s.type}`, value: s.monthly, color: COLOR[s.provider] })), label: 'Server dengan estimasi biaya bulanan terbesar' });
+    const rows = [...o.servers].sort((a, b) => b.month - a.month).slice(0, 6).map((s) => ({ label: s.name, sub: `${o.platforms[s.provider].label}, ${s.type}, ${s.state}`, value: s.month, color: COLOR[s.provider] }));
+    for (const u of o.unassigned) rows.push({ label: `${u.label}: di luar server terdaftar`, sub: 'server terhapus, region lain, atau snapshot', value: u.used, color: COLOR[u.provider] });
+    rows.sort((a, b) => b.value - a.value);
+    if (!rows.length) return '<p class="chart-empty">Belum ada server.</p>';
+    return C.hbars({ rows: rows.slice(0, 6), label: 'Biaya bulan ini per server' });
   }
 
   function usageTable(o) {
@@ -120,29 +122,24 @@
       <tfoot><tr><th scope="row">Total</th><td class="num">${o.totals.running} / ${o.servers.length}</td><td class="num">${sum('vcpu')}</td><td class="num">${sum('mem').toFixed(1)} GiB</td><td class="num">${sum('disk')} GB</td><td class="num">${usd(o.totals.mtd)}</td><td class="num">${usd(o.totals.perDay)}</td><td class="num">${usd(o.totals.forecast)}</td><td></td></tr></tfoot></table></div>`;
   }
 
-  // Asal bills bulan ini per region dan komponen. Bills mencakup seluruh akun, termasuk region lain
-  // dan server yang sudah dihapus, jadi bisa lebih besar dari daftar server di atas.
-  function billSources(o) {
-    const u = o.platforms.aws.usage;
-    if (!u || !u.length) return '';
-    const total = u.reduce((a, x) => a + x.amount, 0);
-    const listed = new Set(o.servers.filter((s) => s.provider === 'aws').map((s) => s.region));
-    const other = u.filter((x) => !listed.has(x.region)).reduce((a, x) => a + x.amount, 0);
-    return `<section class="section"><h2>Asal bills AWS bulan ini</h2>
-      ${other > 0.005 ? `<p class="note">${usd(other)} dari ${usd(total)} berasal dari region yang tidak punya server terdaftar di dashboard ini. Biasanya server, disk, atau IP di region lain, atau yang sudah dihapus.</p>` : ''}
-      <div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Komponen</th><th scope="col">Region</th><th scope="col">Usage type</th><th scope="col" class="num">Bulan ini</th></tr></thead><tbody>${u
-        .map((x) => `<tr><td>${esc(x.kind)}</td><td>${esc(x.region)}${listed.has(x.region) ? '' : ' <span class="muted">(tidak terdaftar)</span>'}</td><td><code>${esc(x.usageType)}</code></td><td class="num">${usd(x.amount)}</td></tr>`)
-        .join('')}</tbody><tfoot><tr><th scope="row" colspan="3">Total</th><td class="num">${usd(total)}</td></tr></tfoot></table></div></section>`;
-  }
-
+  // Kolom: sudah terpakai + sisa bulan ini = bulan ini. Penjumlahan semua baris sama dengan total bill di atas.
   function serverTable(o) {
-    const list = o.servers.filter((s) => state.filter === 'all' || s.provider === state.filter).sort((a, b) => b.monthly - a.monthly);
-    if (!list.length) return '<p class="muted">Tidak ada server untuk filter ini.</p>';
-    return `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Server</th><th scope="col">Platform</th><th scope="col">Lokasi</th><th scope="col">Tipe</th><th scope="col">Spesifikasi</th><th scope="col">Status</th><th scope="col" class="num">Compute</th><th scope="col" class="num">Disk</th><th scope="col" class="num">IPv4</th><th scope="col" class="num">Per hari</th><th scope="col" class="num">Per bulan penuh</th></tr></thead><tbody>${list
-      .map((s) => `<tr><td>${esc(s.name)}</td><td><span class="cell-logo">${L.badge(s.provider, 'logo xs')}${esc(o.platforms[s.provider].label)}</span></td><td>${esc(s.location)}</td><td><code>${esc(s.type)}</code>${s.known ? '' : '<br><span class="muted">tipe tidak ada di daftar harga</span>'}</td>
-        <td>${s.vcpu ? `${s.vcpu} vCPU, ${s.memGiB} GiB, ` : ''}${s.diskGB} GB disk</td><td><span class="status s-${esc(s.state)}">${esc(STATE[s.state] || s.state)}</span></td>
-        <td class="num">${s.parts.compute ? `${usd(s.parts.compute)}<br><span class="muted">${usd(s.hourly, 4)}/jam</span>` : '<span class="muted">$0, stopped</span>'}</td><td class="num">${usd(s.parts.disk)}<br><span class="muted">${s.diskGB} GB</span></td><td class="num">${usd(s.parts.ip)}</td><td class="num"><b>${usd((s.monthly / 730) * 24)}</b></td><td class="num">${usd(s.monthly)}</td></tr>`)
-      .join('')}</tbody></table></div>`;
+    const list = o.servers.filter((s) => state.filter === 'all' || s.provider === state.filter).sort((a, b) => b.month - a.month);
+    const extra = o.unassigned.filter((u) => state.filter === 'all' || u.provider === state.filter);
+    if (!list.length && !extra.length) return '<p class="muted">Tidak ada server untuk filter ini.</p>';
+    const now = (s) => (s.state === 'running' ? `${usd(s.daily)} per hari` : `${usd(s.daily)} per hari, disk saja`);
+    const rows = list
+      .map((s) => `<tr><td>${esc(s.name)}</td><td><span class="cell-logo">${L.badge(s.provider, 'logo xs')}${esc(o.platforms[s.provider].label)}</span></td><td>${esc(s.location)}</td><td><code>${esc(s.type)}</code></td>
+        <td>${s.vcpu ? `${s.vcpu} vCPU, ${s.memGiB} GiB, ` : ''}${s.diskGB} GB disk</td><td><span class="status s-${esc(s.state)}">${esc(STATE[s.state] || s.state)}</span><br><span class="muted">${now(s)}</span></td>
+        <td class="num">${usd(s.used)}</td><td class="num">${usd(s.rest)}</td><td class="num"><b>${usd(s.month)}</b></td></tr>`)
+      .join('');
+    const extraRows = extra
+      .map((u) => `<tr><td colspan="6">${esc(u.label)}: biaya di luar server terdaftar<br><span class="muted">Server yang sudah dihapus, region lain, snapshot, atau IP yang tidak terpakai</span></td><td class="num">${usd(u.used)}</td><td class="num">${usd(0)}</td><td class="num"><b>${usd(u.used)}</b></td></tr>`)
+      .join('');
+    const sum = (k) => list.reduce((a, s) => a + s[k], 0) + (k === 'rest' ? 0 : extra.reduce((a, u) => a + u.used, 0));
+    return `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Server</th><th scope="col">Platform</th><th scope="col">Lokasi</th><th scope="col">Tipe</th><th scope="col">Spesifikasi</th><th scope="col">Status</th><th scope="col" class="num">Sudah terpakai</th><th scope="col" class="num">Sisa bulan ini</th><th scope="col" class="num">Bulan ini</th></tr></thead>
+      <tbody>${rows}${extraRows}</tbody>
+      <tfoot><tr><th scope="row" colspan="6">Total</th><td class="num">${usd(sum('used'))}</td><td class="num">${usd(sum('rest'))}</td><td class="num">${usd(sum('used') + sum('rest'))}</td></tr></tfoot></table></div>`;
   }
 
   function savingsSection(o) {
@@ -200,10 +197,9 @@
         <section class="card wide"><div class="card-head"><h2>Biaya harian</h2><div class="seg-ctl" role="group" aria-label="Rentang waktu">${ranges}</div></div><div id="dailyHost">${dailyChart(o)}</div></section>
         <section class="card"><div class="card-head"><h2>Kumulatif bulan ini vs budget</h2></div>${cumulativeChart(o)}</section>
         <section class="card"><div class="card-head"><h2>Porsi per platform</h2></div>${shareChart(o)}</section>
-        <section class="card wide"><div class="card-head"><h2>Server dengan biaya terbesar</h2><span class="muted">kalau kondisinya tetap sebulan penuh</span></div>${topChart(o)}</section>
+        <section class="card wide"><div class="card-head"><h2>Biaya bulan ini per server</h2></div>${topChart(o)}</section>
       </div>
       <section class="section"><h2>Penggunaan per platform</h2>${usageTable(o)}</section>
-      ${billSources(o)}
       <section class="section"><div class="card-head"><h2>Server terdaftar</h2><label class="row" style="gap:6px">Filter<select id="srvFilter" style="width:auto">${filters}</select></label></div><div id="srvHost">${serverTable(o)}</div></section>
       ${savingsSection(o)}
       ${anomalySection(o)}
