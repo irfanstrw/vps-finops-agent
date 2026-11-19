@@ -44,7 +44,7 @@
   function platformCards(o) {
     return `<div class="sources">${IDS.map((id) => {
       const p = o.platforms[id];
-      const head = `<span class="nm">${L.badge(id, 'logo')}${esc(p.label)}${p.configured ? `<span class="tag">${p.basis}</span>` : ''}</span>`;
+      const head = `<span class="nm">${L.badge(id, 'logo')}${esc(p.label)}</span>`;
       if (!p.configured) return `<a class="source off" href="#/integrations/${id}">${head}<span class="st"><span class="off-dot"></span> Belum tersambung. Sambungkan akun.</span></a>`;
       return `<a class="source" href="#/integrations/${id}">${head}<span class="am">${usd(p.forecastMonth)}</span><span class="st">perkiraan akhir bulan. ${p.running} running, ${p.stopped} stopped.</span></a>`;
     }).join('')}</div>`;
@@ -115,8 +115,8 @@
     const tr = (r) => `<tr><th scope="row"><span class="cell-logo">${L.badge(r.id, 'logo xs')}${esc(r.p.label)}</span></th>
       <td class="num">${r.run.length} / ${r.list.length}</td><td class="num">${r.vcpu}</td><td class="num">${r.mem.toFixed(1)} GiB</td><td class="num">${r.disk} GB</td>
       <td class="num">${usd(r.p.mtd)}</td><td class="num">${usd(r.p.perDay)}</td><td class="num">${usd(r.p.forecastMonth)}</td>
-      <td>${r.p.configured ? (r.p.billed ? 'Bills' : 'Estimasi') : '<span class="muted">Belum tersambung</span>'}</td></tr>`;
-    return `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Platform</th><th scope="col" class="num">Running / total</th><th scope="col" class="num">vCPU aktif</th><th scope="col" class="num">RAM aktif</th><th scope="col" class="num">Disk</th><th scope="col" class="num">Terpakai</th><th scope="col" class="num">Per hari</th><th scope="col" class="num">Akhir bulan</th><th scope="col">Dasar angka</th></tr></thead>
+      <td>${r.p.configured ? '<span class="s-ok">Tersambung</span>' : '<span class="muted">Belum tersambung</span>'}</td></tr>`;
+    return `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Platform</th><th scope="col" class="num">Running / total</th><th scope="col" class="num">vCPU aktif</th><th scope="col" class="num">RAM aktif</th><th scope="col" class="num">Disk</th><th scope="col" class="num">Terpakai</th><th scope="col" class="num">Per hari</th><th scope="col" class="num">Akhir bulan</th><th scope="col">Koneksi</th></tr></thead>
       <tbody>${rows.map(tr).join('')}</tbody>
       <tfoot><tr><th scope="row">Total</th><td class="num">${o.totals.running} / ${o.servers.length}</td><td class="num">${sum('vcpu')}</td><td class="num">${sum('mem').toFixed(1)} GiB</td><td class="num">${sum('disk')} GB</td><td class="num">${usd(o.totals.mtd)}</td><td class="num">${usd(o.totals.perDay)}</td><td class="num">${usd(o.totals.forecast)}</td><td></td></tr></tfoot></table></div>`;
   }
