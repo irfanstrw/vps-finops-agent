@@ -31,6 +31,15 @@ Aksen dipakai hanya untuk tombol utama, cincin fokus, penanda tab aktif, saklar 
 
 System sans (`system-ui`, Segoe UI di Windows). Alasan: permintaan pemilik, dan terbaca baik untuk tabel angka. Angka memakai `tabular-nums` supaya kolom sejajar.
 
+## Permukaan dan grafik
+
+- Panel datar dengan garis tipis. Bayangan hanya untuk yang melayang: tooltip, dialog, toast, menu HP.
+- Dua radius: 6px kontrol, 10px panel. Kapsul hanya untuk saklar.
+- Tanpa gradasi, glow, atau blur dekoratif.
+- Judul grafik ditulis sebagai pertanyaan yang dijawab grafiknya.
+- Grafik garis menandai nilai terakhir langsung di garis; perkiraan bergaris putus-putus setelah "hari ini".
+- Donat bercincin tipis dengan celah antar irisan; legenda berupa daftar bergaris.
+
 ## Dial
 
 ENERGY 1 / RHYTHM 2 / MOTION 1

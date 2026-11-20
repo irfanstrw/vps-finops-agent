@@ -98,20 +98,23 @@
       const hist = pts.slice(0, histEnd);
       const proj = split < 0 ? [] : pts.slice(histEnd - 1);
       const area = s.area ?? series.length === 1;
-      if (area && hist.length > 1) {
-        const gid = `${id}g${k}`;
-        defs += `<linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:${s.color};stop-opacity:.28"/><stop offset="1" style="stop-color:${s.color};stop-opacity:0"/></linearGradient>`;
-        paths += `<path class="lc-area" d="${smooth(hist)}L${hist[hist.length - 1][0].toFixed(1)},${VH}L${hist[0][0].toFixed(1)},${VH}Z" fill="url(#${gid})"/>`;
-      }
+      // Isian datar tipis di bawah garis tunggal: memberi bobot pada "sudah terpakai", tanpa gradasi dekoratif.
+      if (area && hist.length > 1) paths += `<path class="lc-area" d="${smooth(hist)}L${hist[hist.length - 1][0].toFixed(1)},${VH}L${hist[0][0].toFixed(1)},${VH}Z" style="fill:${s.color}"/>`;
       paths += `<path class="lc-ln${s.bold ? ' bold' : ''}" d="${smooth(hist)}" style="stroke:${s.color}"/>`;
       if (proj.length > 1) paths += `<path class="lc-ln proj${s.bold ? ' bold' : ''}" d="${smooth(proj)}" style="stroke:${s.color}"/>`;
     });
     let grid = '', ylab = '';
     for (let i = 0; i <= 4; i++) {
       const v = (max / 4) * i;
-      grid += `<line class="lc-grid" x1="0" x2="${VW}" y1="${Y(v)}" y2="${Y(v)}"/>`;
+      grid += `<line class="lc-grid${i === 0 ? ' base' : ''}" x1="0" x2="${VW}" y1="${Y(v)}" y2="${Y(v)}"/>`;
       ylab += `<span style="top:${(100 - (v / max) * 100).toFixed(2)}%">${esc(short(v))}</span>`;
     }
+    // Nilai terakhir yang sudah terjadi ditandai langsung di garis utama, supaya angka hari ini terbaca tanpa hover.
+    const lead = series.find((s) => s.bold) || series[0];
+    const lastI = histEnd - 1;
+    const lastV = rows[lastI]?.[lead.key] || 0;
+    const ex = ((X(lastI) / VW) * 100).toFixed(2), ey = (100 - (lastV / max) * 100).toFixed(2);
+    const endMark = `<i class="lc-end" style="left:${ex}%;top:${ey}%;background:${lead.color}"></i>${lastV > 0 ? `<span class="lc-endl" style="${Number(ex) > 80 ? `right:${(100 - Number(ex)).toFixed(2)}%;transform:translate(-8px,-50%)` : `left:${ex}%`};top:${ey}%">${esc(usd(lastV))}</span>` : ''}`;
     const ticks = Math.min(n, 6);
     let xlab = '';
     for (let t = 0; t < ticks; t++) {
@@ -134,7 +137,7 @@
       <div class="lc-y" aria-hidden="true">${ylab}</div>
       <div class="lc-plot" tabindex="0" role="img" aria-label="${esc(label)}">
         <svg viewBox="0 0 ${VW} ${VH}" preserveAspectRatio="none" aria-hidden="true"><defs>${defs}</defs>${grid}${paths}</svg>
-        ${marks}<div class="lc-xh"></div>${series.map((s) => `<i class="lc-dot" style="background:${s.color}"></i>`).join('')}<div class="tip" role="status" aria-live="polite"></div>
+        ${marks}${endMark}<div class="lc-xh"></div>${series.map((s) => `<i class="lc-dot" style="background:${s.color}"></i>`).join('')}<div class="tip" role="status" aria-live="polite"></div>
       </div>
       <div class="lc-x" aria-hidden="true">${xlab}</div>
     </div>`;
@@ -202,12 +205,15 @@
   function donut({ slices, label, size = 150, center }) {
     const total = slices.reduce((a, s) => a + s.value, 0);
     if (total <= 0) return '';
-    const r = 54, c = 2 * Math.PI * r;
+    // Cincin tipis dengan celah 2 unit antar irisan, supaya warna yang mirip tetap bisa dibedakan.
+    const r = 56, c = 2 * Math.PI * r;
+    const gap = slices.filter((s) => s.value > 0).length > 1 ? 2 : 0;
     let off = 0;
-    const arcs = slices
+    const arcs = `<circle cx="70" cy="70" r="${r}" fill="none" stroke="var(--edge)" stroke-width="12"/>` + slices
       .map((s, k) => {
         const len = (s.value / total) * c;
-        const el = `<circle class="arc" cx="70" cy="70" r="${r}" fill="none" stroke="${s.color || SER[k % 4]}" stroke-width="18" stroke-dasharray="${len.toFixed(2)} ${(c - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 70 70)" data-k="${k}"><title>${esc(s.label)}: ${esc(usd(s.value))}</title></circle>`;
+        const vis = Math.max(0, len - gap);
+        const el = `<circle class="arc" cx="70" cy="70" r="${r}" fill="none" stroke="${s.color || SER[k % 4]}" stroke-width="12" stroke-dasharray="${vis.toFixed(2)} ${(c - vis).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 70 70)" data-k="${k}"><title>${esc(s.label)}: ${esc(usd(s.value))}</title></circle>`;
         off += len;
         return el;
       })
