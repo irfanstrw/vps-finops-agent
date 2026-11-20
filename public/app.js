@@ -365,10 +365,12 @@
     });
     box.addEventListener('click', async (e) => {
       const s = e.target.closest('[data-suggest]');
-      if (s) {
+      if (s && !s.disabled) {
         input.value = s.dataset.suggest;
         $('#composer').requestSubmit();
       }
+      const cp = e.target.closest('[data-copyreply]');
+      if (cp) copy(cp.closest('.body').querySelector('.reply').innerText, cp);
       const save = e.target.closest('[data-save]');
       if (save) {
         try {
@@ -379,11 +381,17 @@
         }
       }
     });
+    let sending = false;
     $('#composer').addEventListener('submit', async (e) => {
       e.preventDefault();
       const text = input.value.trim();
-      if (!text) return;
+      // Satu pertanyaan pada satu waktu: Enter dobel atau klik saran saat masih menunggu tidak mengirim ulang.
+      if (!text || sending) return;
+      sending = true;
+      $('#composer').classList.add('busy');
+      box.querySelectorAll('.followups button').forEach((b) => (b.disabled = true));
       input.value = '';
+      $('#count').textContent = '0/10000 karakter';
       input.disabled = true;
       try {
         if (!chat) {
@@ -395,11 +403,20 @@
         }
         if (!chat.messages.length) box.innerHTML = '';
         box.insertAdjacentHTML('beforeend', msgHtml({ role: 'user', text, ts: Date.now() }));
-        box.insertAdjacentHTML('beforeend', '<div class="msg agent" id="pending"><div class="who">FinOps Agent</div><div class="body muted">Menganalisis…</div></div>');
+        box.insertAdjacentHTML('beforeend', `<div class="msg agent" id="pending"><div class="who"><span class="avatar" aria-hidden="true">${window.Logos ? window.Logos.product('logo') : ''}</span>FinOps Agent</div><div class="body"><div class="typing" role="status"><span class="dots"><i></i><i></i><i></i></span><span id="pendingStep">Membaca data server</span></div></div></div>`);
         box.scrollTop = box.scrollHeight;
-        const r = await api('POST', `/api/chats/${chat.id}/messages`, { text });
-        chat.messages.push(r.user, r.agent);
-        $('#pending').outerHTML = msgHtml(r.agent, chat.id);
+        // Teks status berganti selama menunggu, supaya terlihat agent sedang bekerja.
+        const stepsTxt = ['Membaca data server', 'Memilih analisis yang cocok', 'Menghitung biaya', 'Menyusun jawaban'];
+        let si = 0;
+        const stepTimer = setInterval(() => { const el = $('#pendingStep'); if (el) el.textContent = stepsTxt[Math.min(++si, stepsTxt.length - 1)]; }, 1400);
+        let r;
+        try {
+          r = await api('POST', `/api/chats/${chat.id}/messages`, { text });
+        } finally {
+          clearInterval(stepTimer);
+        }
+        if (!r.duplicate) chat.messages.push(r.user, r.agent);
+        $('#pending').outerHTML = msgHtml(r.agent, chat.id, true);
         box.scrollTop = box.scrollHeight;
         const h1 = $('.chat-head h1');
         if (h1 && r.chat?.title) h1.firstChild.textContent = r.chat.title;
@@ -409,7 +426,10 @@
       } catch (err) {
         $('#pending')?.remove();
         toast(err.message);
+        input.value = text;
       } finally {
+        sending = false;
+        $('#composer').classList.remove('busy');
         input.disabled = false;
         input.focus();
       }
@@ -417,12 +437,13 @@
     input.focus();
   }
 
-  function msgHtml(m, chatId) {
-    if (m.role === 'user')
-      return `<div class="msg user"><div class="bubble">${esc(m.text)}</div><div class="time">${esc(new Date(m.ts).toLocaleTimeString('id-ID', { hour: 'numeric', minute: '2-digit' }))}</div></div>`;
-    const engine = m.engine && m.engine !== 'rule-based' ? `<span class="engine">${esc(m.engine.split(':').slice(1).join(':'))}</span>` : '';
-    return `<div class="msg agent"><div class="who">FinOps Agent${engine}</div><div class="body">${renderReply(m.reply)}
-      ${m.id && chatId ? `<div class="msg-actions"><button class="btn small" type="button" data-save="${esc(m.id)}" data-chat="${esc(chatId)}">Simpan sebagai artifact</button></div>` : ''}</div></div>`;
+  function msgHtml(m, chatId, fresh = false) {
+    const time = esc(new Date(m.ts).toLocaleTimeString('id-ID', { hour: 'numeric', minute: '2-digit' }));
+    if (m.role === 'user') return `<div class="msg user"><div class="bubble">${esc(m.text)}</div><div class="time">${time}</div></div>`;
+    const ai = m.engine && m.engine !== 'rule-based';
+    const engine = ai ? `<span class="engine">${esc(m.engine.split(':').slice(1).join(':'))}</span>` : '';
+    return `<div class="msg agent${fresh ? ' fresh' : ''}"><div class="who"><span class="avatar" aria-hidden="true">${window.Logos ? window.Logos.product('logo') : ''}</span>FinOps Agent${engine}<span class="time">${time}</span></div><div class="body">${renderReply(m.reply)}
+      ${m.id && chatId ? `<div class="msg-actions"><button class="btn small ghost" type="button" data-copyreply>Salin</button><button class="btn small ghost" type="button" data-save="${esc(m.id)}" data-chat="${esc(chatId)}">Simpan sebagai artifact</button></div>` : ''}</div></div>`;
   }
 
   // ---------- automations ----------

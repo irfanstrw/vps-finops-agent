@@ -287,10 +287,19 @@ route('DELETE', '/api/chats/:id', async (req, res, p) => {
 });
 route('POST', '/api/chats/:id/messages', async (req, res, p) => {
   const c = findOr404(store.db.chats, p.id, 'Chat');
-  const text = str((await readBody(req)).text, 10000, 'text');
+  const b = await readBody(req);
+  const text = str(b.text, 10000, 'text');
   const started = Date.now();
+  // Cegah jawaban dobel: permintaan yang sama (klik dua kali, Enter dobel, retry jaringan) dalam 15 detik
+  // mengembalikan jawaban yang sudah ada, bukan membuat pesan baru.
+  const last = c.messages[c.messages.length - 1];
+  const prevUser = c.messages[c.messages.length - 2];
+  if (last?.role === 'agent' && prevUser?.role === 'user' && prevUser.text === text && started - prevUser.ts < 15000) {
+    return send(res, 200, { chat: chatSummary(c), user: prevUser, agent: last, duplicate: true });
+  }
+  const history = c.messages.slice(-8);
   c.messages.push({ id: store.newId(), role: 'user', text, ts: started });
-  const { reply, engine } = await llm.respond(text);
+  const { reply, engine } = await llm.respond(text, history);
   const msg = { id: store.newId(), role: 'agent', reply, engine, ts: Date.now() };
   c.messages.push(msg);
   if (c.title === 'Percakapan baru' || c.title === 'New chat') c.title = reply.title;
