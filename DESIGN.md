@@ -42,11 +42,21 @@ System sans (`system-ui`, Segoe UI di Windows). Alasan: permintaan pemilik, dan 
 
 ## Dial
 
-ENERGY 1 / RHYTHM 2 / MOTION 1
+ENERGY 1 / RHYTHM 2 / MOTION 2
 
 - ENERGY 1: alat kerja yang tenang, fokus pada angka.
-- RHYTHM 2: halaman Ringkasan punya satu titik fokus (forecast), halaman lain mengikuti komposisi yang sama.
-- MOTION 1: hanya transisi hover dan fokus. Tidak ada animasi berulang.
+- RHYTHM 2: Dashboard punya satu titik fokus (kartu total bill dengan tren kecil), halaman lain mengikuti komposisi yang sama.
+- MOTION 2 (diminta pemilik: UI lebih modern dengan animasi). Setiap gerak punya tugas dan hanya jalan sekali:
+  - konten halaman naik pelan saat halaman dibuka,
+  - garis grafik digambar dari kiri (arah waktu), batang dan meter tumbuh dari nol (besaran),
+  - angka total naik dari nol satu kali saat Dashboard pertama dibuka,
+  - ikon Refresh berputar hanya selama memuat.
+  Tidak ada animasi berulang tanpa pemicu. Semua mati kalau perangkat meminta gerak dikurangi.
+
+## Logo dan ikon
+
+- Logo produk: ubin emas berisi tiga rak server yang memanjang seperti batang biaya naik.
+- Ikon menu: satu set garis 1.6px buatan sendiri, dipakai di sidebar dan tombol topbar. Teks tetap tampil di samping ikon.
 
 ## Titik fokus per halaman
 
