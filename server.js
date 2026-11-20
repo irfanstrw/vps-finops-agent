@@ -9,6 +9,7 @@ const pricing = require('./lib/pricing');
 const automations = require('./lib/automations');
 const budget = require('./lib/budget');
 const llm = require('./lib/llm');
+const terraform = require('./lib/terraform');
 const aws = require('./lib/aws');
 const azure = require('./lib/azure');
 const gcp = require('./lib/gcp');
@@ -244,6 +245,16 @@ route('POST', '/api/plan/calc', async (req, res) => {
   if (!Array.isArray(b.items) || b.items.length > 50) throw new HttpError(400, 'Daftar sumber daya harus berupa array, paling banyak 50 baris');
   send(res, 200, cloud.plan(b.items, 12));
 });
+// Template Terraform dari daftar sumber daya Planning. Validasi lewat cloud.plan supaya tipe dan jumlah sama dengan perhitungan biaya.
+route('POST', '/api/plan/terraform', async (req, res) => {
+  const b = await readBody(req);
+  if (!Array.isArray(b.items) || !b.items.length || b.items.length > 50) throw new HttpError(400, 'Rencana butuh 1 sampai 50 baris sumber daya');
+  cloud.plan(b.items, 1);
+  if (!b.items.some((x) => x.kind === 'server')) throw new HttpError(400, 'Tambahkan minimal satu server untuk membuat template Terraform');
+  const name = typeof b.name === 'string' && b.name.trim() ? b.name.trim().slice(0, 80) : 'rencana';
+  const file = (name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'rencana') + '.tf';
+  send(res, 200, terraform.build(b.items, name), { 'Content-Type': 'text/plain; charset=utf-8', 'Content-Disposition': `attachment; filename="${file}"` });
+});
 route('POST', '/api/plan/save', async (req, res) => {
   const b = await readBody(req);
   const name = str(b.name, 80, 'Nama rencana');
@@ -311,15 +322,19 @@ route('POST', '/api/chats/:id/messages', async (req, res, p) => {
 });
 
 // automations
-route('GET', '/api/automations', async (req, res) => send(res, 200, store.db.automations));
+route('GET', '/api/automations', async (req, res) => send(res, 200, automations.list()));
 route('PATCH', '/api/automations/:id', async (req, res, p) => {
   const a = findOr404(store.db.automations, p.id, 'Automation');
   const b = await readBody(req);
   if (typeof b.enabled === 'boolean') a.enabled = b.enabled;
   if (b.intervalHours !== undefined) {
     const n = Number(b.intervalHours);
-    if (!Number.isFinite(n) || n < 1 || n > 720) throw new HttpError(400, 'Interval harus 1–720 jam');
+    if (!Number.isFinite(n) || n < 1 || n > 720) throw new HttpError(400, 'Interval harus 1 sampai 720 jam');
     a.intervalHours = n;
+  }
+  if (b.pct !== undefined) {
+    if (a.type !== 'budget_threshold' || !automations.PCTS.includes(Number(b.pct))) throw new HttpError(400, `Batas harus salah satu dari ${automations.PCTS.join(', ')} persen`);
+    a.params = { ...(a.params || {}), pct: Number(b.pct) };
   }
   store.save();
   send(res, 200, a);

@@ -456,48 +456,83 @@
   }
 
   // ---------- automations ----------
+  // Satu automation = satu kartu dengan langkah seperti form Planning: status, jadwal, lalu hasil terakhir.
+  // Perubahan saklar dan pilihan jadwal langsung disimpan.
+  const INTERVALS = [[1, 'Setiap jam'], [6, 'Setiap 6 jam'], [24, 'Setiap hari'], [168, 'Setiap minggu']];
+  const LEVEL = { ok: ['s-ok', 'Normal'], warn: ['s-pending', 'Perlu dicek'], alert: ['s-alert', 'Peringatan'] };
+  let autoFilter = 'all';
+  const levelOf = (r) => (r ? r.level || (r.alert ? 'alert' : 'ok') : null);
+  const nextRun = (a) => (a.enabled ? (a.lastRun ? Math.max(Date.now(), a.lastRun + a.intervalHours * 3600000) : Date.now()) : null);
+
+  function autoCard(a) {
+    const lv = levelOf(a.lastResult);
+    const [cls, label] = LEVEL[lv] || [];
+    const iv = INTERVALS.map(([h, t]) => `<label class="opt opt-s"><input type="radio" name="iv-${esc(a.id)}" value="${h}" ${a.intervalHours === h ? 'checked' : ''} data-iv><span class="opt-b"><b>${t}</b></span></label>`).join('');
+    const custom = INTERVALS.some(([h]) => h === a.intervalHours) ? '' : `<p class="muted au-note">Jadwal saat ini setiap ${esc(a.intervalHours)} jam.</p>`;
+    const pct = a.pcts ? `<fieldset class="step"><legend><span class="step-n">3</span>Batas peringatan</legend><div class="opts opts-4">${a.pcts.map((p) => `<label class="opt opt-s"><input type="radio" name="pct-${esc(a.id)}" value="${p}" ${a.params?.pct === p ? 'checked' : ''} data-pct><span class="opt-b"><b>${p}% budget</b></span></label>`).join('')}</div></fieldset>` : '';
+    const next = nextRun(a);
+    return `<article class="au${a.enabled ? '' : ' off'}" data-id="${esc(a.id)}">
+      <header class="au-h"><div class="au-t"><span class="au-cat">${esc(a.categoryLabel)}</span><h2>${esc(a.name)}</h2><p class="muted">${esc(a.description)}</p></div>
+        <label class="au-sw"><span>${a.enabled ? 'Aktif' : 'Nonaktif'}</span><span class="switch"><input type="checkbox" data-toggle ${a.enabled ? 'checked' : ''} aria-label="Aktifkan ${esc(a.name)}"><span></span></span></label></header>
+      <div class="au-b">
+        <fieldset class="step"><legend><span class="step-n">1</span>Jadwal</legend><div class="opts opts-4">${iv}</div>${custom}</fieldset>
+        <fieldset class="step"><legend><span class="step-n">2</span>Hasil terakhir</legend>
+          <div class="au-res">${a.lastResult ? `<span class="status ${cls}">${label}</span><span>${esc(a.lastResult.summary)}</span>` : '<span class="muted">Belum pernah dijalankan.</span>'}</div>
+          <p class="muted au-note">Terakhir ${esc(fmtTime(a.lastRun))}. ${next ? (next <= Date.now() + 60000 ? 'Sudah jatuh tempo, dijalankan pada pengecekan berikutnya.' : `Berikutnya ${esc(fmtTime(next))}.`) : 'Tidak dijadwalkan karena nonaktif.'}</p>
+        </fieldset>
+        ${pct}
+        <div class="rec-submit"><button class="btn primary" type="button" data-run>Jalankan sekarang</button>${a.lastArtifact ? `<a href="#/artifacts/${esc(a.lastArtifact)}">Lihat laporan terakhir</a>` : ''}${a.type === 'budget' || a.type === 'budget_threshold' ? '<a href="#/overview">Atur budget di Dashboard</a>' : ''}</div>
+      </div>
+    </article>`;
+  }
+
   async function renderAutomations(main) {
-    const list = await api('GET', '/api/automations');
-    const body = list
-      .map(
-        (a) => `<section class="box" data-id="${esc(a.id)}">
-          <div class="page-head"><h2 style="margin:0">${esc(a.name)}</h2>
-            <label class="row" style="gap:10px">Aktif<span class="switch"><input type="checkbox" data-toggle ${a.enabled ? 'checked' : ''}><span></span></span></label></div>
-          <p class="muted">${esc(a.description)}</p>
-          <div class="row end">
-            <label>Jalankan setiap (jam)<input type="number" min="1" max="720" value="${esc(a.intervalHours)}" data-interval style="width:120px"></label>
-            ${a.type === 'budget' ? '<a href="#/overview" style="align-self:center">Atur budget di Dashboard</a>' : ''}
-            <button class="btn" type="button" data-savea>Simpan</button>
-            <button class="btn primary" type="button" data-run>Jalankan sekarang</button>
-          </div>
-          <p class="muted" style="margin:10px 0 0">Terakhir dijalankan: ${esc(fmtTime(a.lastRun))}${a.lastResult ? `. Hasil: <span class="${a.lastResult.alert ? 's-alert' : 's-ok'}">${esc(a.lastResult.summary)}</span>` : ''}</p>
-        </section>`
-      )
-      .join('');
-    main.innerHTML = pageHtml('Automations', '<span class="muted">Dijalankan otomatis saat jatuh tempo. Hasilnya tersimpan di Artifacts.</span>', body);
-    main.querySelectorAll('section[data-id]').forEach((sec) => {
-      const id = sec.dataset.id;
-      $('[data-toggle]', sec).addEventListener('change', async (e) => {
-        await api('PATCH', `/api/automations/${id}`, { enabled: e.target.checked }).catch((err) => toast(err.message));
-      });
-      $('[data-savea]', sec).addEventListener('click', async () => {
-        const body = { intervalHours: Number($('[data-interval]', sec).value) };
-        try {
-          await api('PATCH', `/api/automations/${id}`, body);
-          toast('Tersimpan');
-        } catch (err) {
-          toast(err.message);
-        }
-      });
-      $('[data-run]', sec).addEventListener('click', async (e) => {
-        e.target.disabled = true;
+    main.innerHTML = pageHtml('Automations', '', '<p class="muted" role="status">Memuat automations...</p>');
+    let list;
+    try {
+      list = await api('GET', '/api/automations');
+    } catch (e) {
+      main.innerHTML = pageHtml('Automations', '', `<p class="err" role="alert">${esc(e.message)}</p>`);
+      return;
+    }
+    const cats = [...new Map(list.map((a) => [a.category, a.categoryLabel])).entries()];
+    if (autoFilter !== 'all' && !cats.some(([k]) => k === autoFilter)) autoFilter = 'all';
+    const shown = list.filter((a) => autoFilter === 'all' || a.category === autoFilter);
+    const on = list.filter((a) => a.enabled).length;
+    const warn = list.filter((a) => a.enabled && ['warn', 'alert'].includes(levelOf(a.lastResult))).length;
+    const stats = `<div class="stats"><div class="stat"><div class="sv">${on} dari ${list.length}</div><div class="sl">automation aktif</div></div><div class="stat"><div class="sv">${warn}</div><div class="sl">hasil terakhir perlu dicek</div></div><div class="stat"><div class="sv">${esc(fmtTime(Math.max(0, ...list.map((a) => a.lastRun || 0)) || null))}</div><div class="sl">pengecekan terakhir</div></div></div>`;
+    const seg = `<div class="seg-ctl" role="group" aria-label="Kategori automation">${[['all', 'Semua'], ...cats].map(([k, t]) => `<button type="button" data-cat="${esc(k)}" aria-pressed="${autoFilter === k}">${esc(t)}</button>`).join('')}</div>`;
+    const body = `${stats}<div class="au-bar">${seg}<span class="muted">Dijalankan otomatis saat jatuh tempo. Laporan tersimpan di Artifacts.</span></div>
+      <div class="au-list">${shown.length ? shown.map(autoCard).join('') : '<div class="empty-box"><p class="muted">Tidak ada automation di kategori ini.</p></div>'}</div>`;
+    main.innerHTML = pageHtml('Automations', '', body);
+    main.querySelectorAll('[data-cat]').forEach((b) => b.addEventListener('click', () => { autoFilter = b.dataset.cat; renderAutomations(main); }));
+    const patch = async (id, body, msg) => {
+      try {
+        await api('PATCH', `/api/automations/${id}`, body);
+        toast(msg);
+        renderAutomations(main);
+      } catch (err) {
+        toast(err.message);
+        renderAutomations(main);
+      }
+    };
+    main.querySelectorAll('.au[data-id]').forEach((card) => {
+      const id = card.dataset.id;
+      $('[data-toggle]', card).addEventListener('change', (e) => patch(id, { enabled: e.target.checked }, e.target.checked ? 'Automation diaktifkan' : 'Automation dinonaktifkan'));
+      card.querySelectorAll('[data-iv]').forEach((r) => r.addEventListener('change', () => patch(id, { intervalHours: Number(r.value) }, 'Jadwal disimpan')));
+      card.querySelectorAll('[data-pct]').forEach((r) => r.addEventListener('change', () => patch(id, { pct: Number(r.value) }, 'Batas disimpan')));
+      $('[data-run]', card).addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        btn.textContent = 'Menjalankan...';
         try {
           const r = await api('POST', `/api/automations/${id}/run`);
           toast(r.result.summary);
           renderAutomations(main);
         } catch (err) {
           toast(err.message);
-          e.target.disabled = false;
+          btn.disabled = false;
+          btn.textContent = 'Jalankan sekarang';
         }
       });
     });

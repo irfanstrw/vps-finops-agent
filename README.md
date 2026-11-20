@@ -8,7 +8,7 @@ Dashboard FinOps untuk server di AWS (EC2), Azure (Virtual Machines), dan Google
 |---|---|
 | Dashboard | Perkiraan biaya akhir bulan, empat grafik sekaligus (biaya harian per platform, kumulatif vs budget, porsi platform, server terbesar), tombol Refresh, tabel penggunaan per platform, daftar server, peluang hemat, lonjakan bills |
 | Server terdaftar | Diambil otomatis dari EC2, Azure VM, dan Compute Engine. Tidak ada server yang ditambah manual |
-| Planning | Rekomendasi spesifikasi dari budget dan kebutuhan (jenis aplikasi, kunjungan, data), atau susun sendiri lintas platform. Rencana bisa disimpan, dibandingkan, dan diunduh |
+| Planning | Rekomendasi spesifikasi dari budget dan kebutuhan (jenis aplikasi, skala, data), atau Custom lintas platform dengan katalog lengkap tipe server. Rencana bisa disimpan, dibandingkan, dan diunduh sebagai template Terraform |
 | Budget | Uang yang kamu sediakan per bulan untuk biaya server. Bisa ditambah, dikurangi, atau ditetapkan |
 | Chat agent | Jawaban dengan grafik, kartu angka, dan tombol pertanyaan lanjutan. Model AI opsional dengan cadangan |
 | Automations | Cek lonjakan harian, peringatan budget, review hemat mingguan |
@@ -68,6 +68,6 @@ Setelah kredensial disimpan, server langsung dibaca. Status server (running atau
 | Perkiraan akhir bulan | Bulan berjalan + rata-rata bills 7 hari (atau estimasi harian) x hari tersisa |
 | Rekomendasi Planning | Aturan tetap per jenis aplikasi untuk kebutuhan vCPU dan RAM, lalu tipe server terkecil yang memenuhi di tiap platform |
 
-Harga on-demand region US East, disimpan di `lib/pricing.js`.
+Harga on-demand region US East. Katalog tipe server ada di `lib/instances.json` (AWS, Azure, Google Cloud), biaya disk dan IP di `lib/pricing.js`.
 
 Logo AWS, Azure, dan Google Cloud memakai bentuk dari simple-icons dengan warna palet web ini. Proyek ini untuk tugas kuliah, bukan produk komersial.

@@ -1,7 +1,8 @@
 'use strict';
 // Planning: hitung biaya server sebelum membuat apa pun, tanpa akun cloud dan tanpa mengeluarkan uang.
 //   1. Rekomendasi: isi budget dan kebutuhan, sistem memilih spesifikasi dari aturan tetap dan daftar harga.
-//   2. Susun sendiri: daftar sumber daya di AWS, Azure, atau Google Cloud, lalu lihat biaya per bulan dan 12 bulan.
+//   2. Custom: daftar server di AWS, Azure, atau Google Cloud dari katalog lengkap, lihat biaya per bulan dan 12 bulan,
+//      lalu unduh template Terraform.
 // Hasil planning tidak mengubah budget, forecast, atau data server.
 (function () {
   const A = window.App;
@@ -52,16 +53,16 @@
 
   function recResult(r) {
     const req = r.requirement;
-    const need = `<div class="stats"><div class="stat"><div class="sv">${req.vcpu} vCPU</div><div class="sl">kebutuhan CPU</div></div><div class="stat"><div class="sv">${req.mem} GiB</div><div class="sl">kebutuhan RAM</div></div><div class="stat"><div class="sv">${req.diskGB} GB</div><div class="sl">disk</div></div><div class="stat"><div class="sv">${req.egressGB} GB</div><div class="sl">perkiraan data keluar per bulan</div></div></div>`;
+    const need = `<div class="stats"><div class="stat"><div class="sv">${req.vcpu} vCPU</div><div class="sl">kebutuhan CPU</div></div><div class="stat"><div class="sv">${req.mem} GiB</div><div class="sl">kebutuhan RAM</div></div><div class="stat"><div class="sv">${req.diskGB} GB</div><div class="sl">disk</div></div></div>`;
     const best = r.best
       ? `<div class="pick">${L.badge(r.best.provider, 'logo lg')}<div><div class="label muted">Disarankan</div><div class="pick-name">${esc(r.best.label)} <code>${esc(r.best.type)}</code>${r.best.count > 1 ? ` x ${r.best.count}` : ''}</div>
           <div class="big">${usd(r.best.monthly)}<small> per bulan</small></div><p class="muted" style="margin:0">${esc(r.best.region.name)}. Sisa budget ${usd(r.best.left)}.</p></div></div>
          <ul>${r.reasons.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
-         <div class="row"><button class="btn" type="button" data-use="best">Pakai di Susun sendiri</button></div>`
+         <div class="row"><button class="btn" type="button" data-use="best">Pakai di Custom</button></div>`
       : `<div class="note"><b>Budget ${usd(r.budget)} belum cukup.</b> Pilihan terdekat butuh ${usd(r.options[0]?.monthly || 0)} per bulan, kurang ${usd(r.cheapestGap || 0)}. Turunkan kebutuhan atau naikkan budget.</div>`;
     const chart = C.hbars({ rows: r.options.slice(0, 8).map((o) => ({ label: `${o.label} ${o.type}`, sub: `${o.vcpu} vCPU, ${o.memGiB} GiB`, value: o.monthly, color: COLOR[o.provider] })), label: 'Perbandingan biaya per bulan terhadap budget', ref: r.budget, refLabel: `budget ${usd(r.budget)}` });
-    const table = `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Platform</th><th scope="col">Tipe</th><th scope="col">Spesifikasi</th><th scope="col" class="num">Server</th><th scope="col" class="num">Disk dan IP</th><th scope="col" class="num">Data transfer</th><th scope="col" class="num">Per bulan</th><th scope="col">Budget</th><th scope="col"><span class="sr-only">Aksi</span></th></tr></thead><tbody>${r.options
-      .map((o, i) => `<tr><td><span class="cell-logo">${L.badge(o.provider, 'logo xs')}${esc(o.label)}</span></td><td><code>${esc(o.type)}</code>${o.count > 1 ? ` x ${o.count}` : ''}</td><td>${o.vcpu} vCPU, ${o.memGiB} GiB, ${esc(o.arch)}</td><td class="num">${usd(o.parts.server)}</td><td class="num">${usd(o.parts.disk + o.parts.ip)}</td><td class="num">${usd(o.parts.egress)}</td><td class="num"><b>${usd(o.monthly)}</b></td><td>${o.fits ? '<span class="s-ok">Sesuai budget</span>' : '<span class="s-alert">Melebihi budget</span>'}</td><td><button class="btn small" type="button" data-use="${i}">Pakai</button></td></tr>`)
+    const table = `<div class="tbl-wrap" tabindex="0"><table><thead><tr><th scope="col">Platform</th><th scope="col">Tipe</th><th scope="col">Spesifikasi</th><th scope="col" class="num">Server</th><th scope="col" class="num">Disk dan IP</th><th scope="col" class="num">Per bulan</th><th scope="col">Budget</th><th scope="col"><span class="sr-only">Aksi</span></th></tr></thead><tbody>${r.options
+      .map((o, i) => `<tr><td><span class="cell-logo">${L.badge(o.provider, 'logo xs')}${esc(o.label)}</span></td><td><code>${esc(o.type)}</code>${o.count > 1 ? ` x ${o.count}` : ''}</td><td>${o.vcpu} vCPU, ${o.memGiB} GiB, ${esc(o.arch)}</td><td class="num">${usd(o.parts.server)}</td><td class="num">${usd(o.parts.disk + o.parts.ip)}</td><td class="num"><b>${usd(o.monthly)}</b></td><td>${o.fits ? '<span class="s-ok">Sesuai budget</span>' : '<span class="s-alert">Melebihi budget</span>'}</td><td><button class="btn small" type="button" data-use="${i}">Pakai</button></td></tr>`)
       .join('')}</tbody></table></div>`;
     return `<h2>Kebutuhan</h2>${need}<div class="rec-grid"><div class="card">${best}</div><div class="card"><h3>Perbandingan per bulan</h3>${chart}</div></div><h2 style="margin-top:18px">Semua pilihan</h2>${table}`;
   }
@@ -77,9 +78,10 @@
         b.addEventListener('click', () => {
           const o = b.dataset.use === 'best' ? r.best : r.options[Number(b.dataset.use)];
           items = JSON.parse(JSON.stringify(o.items));
+          filt = [];
           tab = 'build';
           render(main);
-          toast('Dimuat ke Susun sendiri');
+          toast('Dimuat ke Custom');
         })
       );
     } catch (e) {
@@ -112,31 +114,68 @@
     runRec(main);
   }
 
-  // ---------- susun sendiri ----------
-  const typeOptions = (provider, sel) => {
-    const list = cat.providers[provider].instances;
-    const groups = { x86_64: 'x86_64', arm64: 'arm64' };
-    return Object.entries(groups)
-      .map(([arch, label]) => {
-        const opts = list.filter((i) => i.arch === arch);
-        return opts.length ? `<optgroup label="${label}">${opts.map((i) => `<option value="${esc(i.type)}" ${i.type === sel ? 'selected' : ''}>${esc(i.type)}: ${i.vcpu} vCPU, ${i.memGiB} GiB, ${usd(i.hourly, 4)}/jam</option>`).join('')}</optgroup>` : '';
-      })
-      .join('');
-  };
-  const provSelect = (it, i) => `<label>Platform<select data-f="provider" data-i="${i}">${IDS.map((id) => `<option value="${id}" ${it.provider === id ? 'selected' : ''}>${esc(cat.providers[id].label)}</option>`).join('')}</select></label>`;
+  // ---------- custom ----------
+  // Katalog berisi ratusan sampai ribuan tipe per platform. Pilihan tipe disaring dulu (cari nama, arsitektur,
+  // vCPU, dan RAM minimum), lalu daftar hasil diurutkan dari harga per jam.
+  const MAX_OPTS = 150;
+  const VCPU = [0, 1, 2, 4, 8, 16, 32, 64];
+  const MEM = [0, 1, 2, 4, 8, 16, 32, 64, 128];
+  let filt = [];
+  const blankFilter = () => ({ q: '', arch: 'any', vcpu: 0, mem: 0 });
+  const filterOf = (i) => (filt[i] ||= blankFilter());
 
+  function matches(provider, f) {
+    const q = f.q.trim().toLowerCase();
+    return cat.providers[provider].instances.filter((t) => (f.arch === 'any' || t.arch === f.arch) && t.vcpu >= f.vcpu && t.memGiB >= f.mem && (!q || t.type.toLowerCase().includes(q)));
+  }
+
+  function typeOptions(it, i) {
+    const all = matches(it.provider, filterOf(i));
+    const list = all.slice(0, MAX_OPTS);
+    const cur = cat.providers[it.provider].instances.find((t) => t.type === it.type);
+    if (cur && !list.includes(cur)) list.unshift(cur);
+    const opt = (t) => `<option value="${esc(t.type)}" ${t.type === it.type ? 'selected' : ''}>${esc(t.type)}: ${t.vcpu} vCPU, ${t.memGiB} GiB, ${esc(t.arch)}, ${usd(t.hourly * 730)}/bln</option>`;
+    return { html: list.length ? list.map(opt).join('') : '<option value="">Tidak ada tipe yang cocok</option>', total: all.length, shown: Math.min(all.length, MAX_OPTS) };
+  }
+
+  const countText = (o, provider) => (o.total ? `${o.total} dari ${cat.providers[provider].instances.length} tipe cocok${o.total > o.shown ? `, ${o.shown} termurah ditampilkan` : ''}.` : 'Tidak ada tipe yang cocok. Longgarkan saringan.');
+
+  // Satu server = satu kartu dengan langkah bernomor seperti form Rekomendasi.
   function rowHtml(it, i) {
-    const k = cat.kinds[it.kind];
-    const main = it.kind === 'server'
-      ? `<label>Tipe server<select data-f="type" data-i="${i}">${typeOptions(it.provider, it.type)}</select></label><label>Disk (GB)<input type="number" min="0" step="1" data-f="diskGB" data-i="${i}" value="${esc(it.diskGB ?? 30)}"></label>`
-      : `<label>Jenis<input value="${esc(k.label)}" disabled></label><span></span>`;
-    return `<div class="plan-row" data-row="${i}">${provSelect(it, i)}${main}
-      <label>Jumlah (${esc(k.unit)})<input type="number" min="0" step="any" data-f="qty" data-i="${i}" value="${esc(it.qty)}"></label>
-      <button class="btn small danger" type="button" data-rm="${i}" aria-label="Hapus baris ${esc(k.label)}">Hapus</button></div>`;
+    const t = cat.providers[it.provider].instances.find((x) => x.type === it.type);
+    const f = filterOf(i);
+    const cost = lastCalc?.rows?.[i]?.monthly;
+    const o = typeOptions(it, i);
+    const prov = IDS.map((id) => choice('radio', `cProv${i}`, id, it.provider === id, cat.providers[id].label, cat.providers[id].region.name, L.badge(id, 'logo sm'))).join('');
+    const sel = (name, vals, cur, fmt) => `<select data-flt="${name}" data-i="${i}">${vals.map((v) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${fmt(v)}</option>`).join('')}</select>`;
+    return `<article class="res" data-row="${i}">
+      <header class="res-h">${L.badge(it.provider, 'logo sm')}<div class="res-t"><b>Server ${i + 1}</b><small>${t ? `${esc(t.type)}, ${t.vcpu} vCPU, ${t.memGiB} GiB, ${esc(t.arch)}` : 'Tipe belum dipilih'}</small></div>
+        <span class="res-c">${cost != null ? `${usd(cost)}<small> per bulan</small>` : ''}</span>
+        <button class="btn small ghost" type="button" data-rm="${i}" aria-label="Hapus server ${i + 1}">Hapus</button></header>
+      <div class="res-b">
+        <fieldset class="step"><legend><span class="step-n">1</span>Platform</legend><div class="opts opts-3" data-prov="${i}">${prov}</div></fieldset>
+        <fieldset class="step"><legend><span class="step-n">2</span>Tipe server</legend>
+          <div class="flt">
+            <label class="grow">Cari nama tipe<input type="search" data-flt="q" data-i="${i}" value="${esc(f.q)}" placeholder="${esc(DEFAULT_TYPE[it.provider])}" autocomplete="off"></label>
+            <label>Arsitektur${sel('arch', ['any', 'x86_64', 'arm64'], f.arch, (v) => (v === 'any' ? 'Semua' : v))}</label>
+            <label>vCPU minimum${sel('vcpu', VCPU, f.vcpu, (v) => (v ? `${v} vCPU` : 'Semua'))}</label>
+            <label>RAM minimum${sel('mem', MEM, f.mem, (v) => (v ? `${v} GiB` : 'Semua'))}</label>
+          </div>
+          <label class="type-pick">Pilih tipe<select data-f="type" data-i="${i}">${o.html}</select></label>
+          <p class="muted flt-n" id="fltN${i}" aria-live="polite">${esc(countText(o, it.provider))}</p>
+        </fieldset>
+        <fieldset class="step"><legend><span class="step-n">3</span>Disk dan jumlah</legend>
+          <div class="step-row">
+            <label>Disk per server (GB)<input type="number" min="8" step="1" data-f="diskGB" data-i="${i}" value="${esc(it.diskGB ?? 30)}"></label>
+            <label>Jumlah server<input type="number" min="1" step="1" data-f="qty" data-i="${i}" value="${esc(it.qty)}"></label>
+          </div>
+        </fieldset>
+      </div>
+    </article>`;
   }
 
   function outHtml(r) {
-    if (!r) return '<p class="muted">Tambahkan sumber daya untuk melihat perkiraan biaya.</p>';
+    if (!r) return '<p class="muted">Tambahkan server untuk melihat perkiraan biaya.</p>';
     const byProv = {};
     for (const x of r.rows) byProv[x.provider] = (byProv[x.provider] || 0) + x.monthly;
     const donut = C.donut({ slices: r.rows.filter((x) => x.monthly > 0).map((x) => ({ label: `${x.label} (${x.detail})`, value: x.monthly })), label: 'Porsi biaya bulanan per sumber daya', center: { top: usd(r.monthly), bottom: 'per bulan' }, size: 140 });
@@ -148,7 +187,9 @@
       ${donut}${prov}
       <h3 style="margin:16px 0 6px">Kumulatif 12 bulan</h3>${growth}
       <div class="tbl-wrap" tabindex="0" style="margin-top:12px"><table><thead><tr><th scope="col">Sumber daya</th><th scope="col">Rincian</th><th scope="col" class="num">Per bulan</th></tr></thead><tbody>${r.rows.map((x) => `<tr><td>${esc(x.label)}</td><td>${esc(x.detail)}</td><td class="num">${usd(x.monthly)}</td></tr>`).join('')}</tbody></table></div>
-      <p class="muted" style="margin-top:10px">Region US East. Server sudah termasuk satu IPv4 publik.</p>`;
+      <p class="muted" style="margin-top:10px">Region US East. Server sudah termasuk satu IPv4 publik.</p>
+      <div class="tf-box"><h3>Template Terraform</h3><p class="muted">File <code>.tf</code> berisi server di atas dengan tipe, disk, dan jumlah yang sama. Kredensial tidak ikut disimpan.</p>
+        <button class="btn primary" type="button" id="dlTf">Unduh template Terraform</button></div>`;
   }
 
   function calc() {
@@ -163,37 +204,104 @@
         lastCalc = await api('POST', '/api/plan/calc', { items });
         $('#planOut').innerHTML = outHtml(lastCalc);
         C.bind($('#planOut'));
+        $('#dlTf').addEventListener('click', (e) => terraformFile(e.currentTarget));
+        // Biaya per kartu diperbarui di tempat supaya fokus di kolom isian tidak hilang.
+        document.querySelectorAll('#planRows .res').forEach((el) => {
+          const m = lastCalc.rows[Number(el.dataset.row)]?.monthly;
+          el.querySelector('.res-c').innerHTML = m != null ? `${usd(m)}<small> per bulan</small>` : '';
+        });
       } catch (e) {
         $('#planOut').innerHTML = `<p class="err" role="alert">${esc(e.message)}</p>`;
       }
     }, 180);
   }
 
+  // Isi ulang pilihan tipe satu kartu setelah saringan berubah. Kalau tipe terpilih tidak lolos saringan,
+  // tipe termurah yang lolos dipakai supaya biaya selalu sesuai dengan yang terlihat.
+  function refreshTypes(i) {
+    const it = items[i];
+    const f = filterOf(i);
+    const all = matches(it.provider, f);
+    if (all.length && !all.some((t) => t.type === it.type)) it.type = all[0].type;
+    const o = typeOptions(it, i);
+    const card = $('#planRows').querySelector(`[data-row="${i}"]`);
+    card.querySelector('[data-f="type"]').innerHTML = o.html;
+    card.querySelector(`#fltN${i}`).textContent = countText(o, it.provider);
+    headOf(i);
+    calc();
+  }
+  function headOf(i) {
+    const it = items[i];
+    const t = cat.providers[it.provider].instances.find((x) => x.type === it.type);
+    const card = $('#planRows').querySelector(`[data-row="${i}"]`);
+    card.querySelector('.res-t small').textContent = t ? `${t.type}, ${t.vcpu} vCPU, ${t.memGiB} GiB, ${t.arch}` : 'Tipe belum dipilih';
+  }
+
   function renderRows() {
-    $('#planRows').innerHTML = items.length ? items.map(rowHtml).join('') : '<p class="muted">Belum ada baris. Tambah sumber daya di bawah, atau ambil dari tab Rekomendasi.</p>';
-    $('#planRows').querySelectorAll('[data-f]').forEach((el) =>
+    const box = $('#planRows');
+    box.innerHTML = items.length ? items.map(rowHtml).join('') : '<div class="empty-box"><p class="muted">Belum ada server. Tambah server di bawah, atau pilih hasil dari tab Rekomendasi lalu tekan Pakai.</p></div>';
+    box.querySelectorAll('[data-f]').forEach((el) =>
       el.addEventListener('change', () => {
-        const it = items[Number(el.dataset.i)];
+        const i = Number(el.dataset.i);
         const f = el.dataset.f;
-        it[f] = f === 'type' || f === 'provider' ? el.value : Number(el.value);
-        if (f === 'provider' && it.kind === 'server') {
-          it.type = DEFAULT_TYPE[it.provider];
-          renderRows();
-        }
+        if (f === 'type' && !el.value) return;
+        items[i][f] = f === 'type' ? el.value : Number(el.value);
+        if (f === 'type') headOf(i);
         calc();
       })
     );
-    $('#planRows').querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', () => { items.splice(Number(b.dataset.rm), 1); renderRows(); calc(); }));
+    box.querySelectorAll('[data-prov]').forEach((g) =>
+      g.addEventListener('change', (e) => {
+        const i = Number(g.dataset.prov);
+        items[i].provider = e.target.value;
+        items[i].type = DEFAULT_TYPE[e.target.value];
+        filt[i] = blankFilter();
+        renderRows();
+        calc();
+        box.querySelector(`input[name="cProv${i}"]:checked`)?.focus();
+      })
+    );
+    let qTimer = null;
+    box.querySelectorAll('[data-flt]').forEach((el) => {
+      const i = Number(el.dataset.i);
+      const k = el.dataset.flt;
+      const apply = () => { filterOf(i)[k] = k === 'q' || k === 'arch' ? el.value : Number(el.value); refreshTypes(i); };
+      if (k === 'q') el.addEventListener('input', () => { clearTimeout(qTimer); qTimer = setTimeout(apply, 150); });
+      else el.addEventListener('change', apply);
+    });
+    box.querySelectorAll('[data-rm]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const i = Number(b.dataset.rm);
+        items.splice(i, 1);
+        filt.splice(i, 1);
+        renderRows();
+        calc();
+      })
+    );
   }
 
-  function csv() {
-    const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
-    const lines = ['Sumber daya,Rincian,Per bulan (USD)', ...lastCalc.rows.map((r) => `${q(r.label)},${q(r.detail)},${r.monthly.toFixed(2)}`), `Total,,${lastCalc.monthly.toFixed(2)}`];
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([lines.join('\r\n')], { type: 'text/csv' }));
-    a.download = 'planning-biaya.csv';
-    a.click();
-    URL.revokeObjectURL(a.href);
+  // Unduh template Terraform (.tf) dari server, lalu tampilkan isinya di panel supaya bisa dibaca sebelum dipakai.
+  async function terraformFile(btn) {
+    if (!items.some((x) => x.kind === 'server')) return toast('Tambahkan minimal satu server dulu');
+    const name = $('#planName').value.trim() || 'rencana';
+    btn.disabled = true;
+    try {
+      const r = await fetch('/api/plan/terraform', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, name }), credentials: 'same-origin' });
+      const text = await r.text();
+      if (!r.ok) throw new Error((() => { try { return JSON.parse(text).error; } catch { return `HTTP ${r.status}`; } })());
+      const file = (r.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'rencana.tf';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+      a.download = file;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      $('#tfPreview').innerHTML = `<details open><summary>Isi ${esc(file)}</summary>${A.codeBox(text)}</details>`;
+      toast(`${file} diunduh`);
+    } catch (e) {
+      toast(e.message);
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   function savedHtml() {
@@ -206,14 +314,13 @@
   }
 
   function buildHtml() {
-    const add = Object.entries(cat.kinds).map(([k, v]) => `<button class="btn small" type="button" data-add="${k}">${esc(v.label)}</button>`).join('');
     return `<div class="plan">
         <div>
           <div class="plan-rows" id="planRows"></div>
-          <div class="add-menu"><span class="muted" style="align-self:center">Tambah:</span>${add}</div>
-          <form id="saveForm" class="row end" style="margin-top:18px"><label>Nama rencana<input id="planName" maxlength="80" placeholder="Misalnya: Web toko tahap 1" style="width:240px"></label><button class="btn primary" type="submit">Simpan</button><button class="btn" type="button" id="dlPlan">Unduh CSV</button></form>
+          <div class="add-menu"><button class="btn" type="button" data-add="server">Tambah server</button></div>
+          <form id="saveForm" class="row end save-row"><label>Nama rencana<input id="planName" maxlength="80" placeholder="Misalnya: Web toko tahap 1"></label><button class="btn primary" type="submit">Simpan</button></form>
         </div>
-        <aside class="plan-out" id="planOut" aria-live="polite"></aside>
+        <aside class="plan-out"><div id="planOut" aria-live="polite"></div><div id="tfPreview"></div></aside>
       </div>
       <section class="section" style="margin-top:28px"><h2>Rencana tersimpan</h2>${savedHtml()}</section>`;
   }
@@ -223,15 +330,14 @@
     calc();
     main.querySelectorAll('[data-add]').forEach((b) =>
       b.addEventListener('click', () => {
-        if (items.length >= 50) return toast('Maksimum 50 baris');
-        const kind = b.dataset.add;
+        if (items.length >= 50) return toast('Maksimum 50 server');
         const provider = items[items.length - 1]?.provider || 'aws';
-        items.push(kind === 'server' ? { kind, provider, type: DEFAULT_TYPE[provider], qty: 1, diskGB: 30 } : { kind, provider, qty: kind === 'egress' ? 100 : kind === 'storage' ? 50 : 1 });
+        items.push({ kind: 'server', provider, type: DEFAULT_TYPE[provider], qty: 1, diskGB: 30 });
         renderRows();
         calc();
+        $('#planRows').querySelector(`[data-row="${items.length - 1}"]`)?.scrollIntoView({ block: 'nearest' });
       })
     );
-    $('#dlPlan').addEventListener('click', () => (lastCalc ? csv() : toast('Belum ada rencana untuk diunduh')));
     $('#saveForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const name = $('#planName').value.trim();
@@ -249,6 +355,7 @@
         const p = cat.savedPlans.find((x) => x.id === b.dataset.load);
         if (!p) return;
         items = JSON.parse(JSON.stringify(p.items));
+        filt = [];
         $('#planName').value = p.name;
         renderRows();
         calc();
@@ -267,10 +374,13 @@
 
   async function render(main) {
     cat = await api('GET', '/api/plan/catalog');
-    // Rencana dari versi lama memakai format berbeda dan tidak bisa dihitung lagi.
-    cat.savedPlans = cat.savedPlans.filter((p) => p.items.every((x) => cat.kinds[x.kind] && x.provider));
-    if (!items.length) items = [{ kind: 'server', provider: 'aws', type: 't3a.small', qty: 1, diskGB: 30 }, { kind: 'egress', provider: 'aws', qty: 100 }];
-    const tabs = `<nav class="tabs" aria-label="Mode planning"><a href="#" data-tab="recommend" ${tab === 'recommend' ? 'aria-current="page"' : ''}>Rekomendasi</a><a href="#" data-tab="build" ${tab === 'build' ? 'aria-current="page"' : ''}>Susun sendiri</a></nav>`;
+    // Rencana lama bisa berisi data transfer atau object storage. Baris itu dibuang; rencana tanpa server tidak ditampilkan.
+    cat.savedPlans = cat.savedPlans
+      .map((p) => ({ ...p, items: p.items.filter((x) => x.kind === 'server' && x.provider && cat.providers[x.provider]) }))
+      .filter((p) => p.items.length);
+    items = items.filter((x) => x.kind === 'server');
+    if (!items.length) { items = [{ kind: 'server', provider: 'aws', type: DEFAULT_TYPE.aws, qty: 1, diskGB: 30 }]; filt = []; }
+    const tabs = `<nav class="tabs" aria-label="Mode planning"><a href="#" data-tab="recommend" ${tab === 'recommend' ? 'aria-current="page"' : ''}>Rekomendasi</a><a href="#" data-tab="build" ${tab === 'build' ? 'aria-current="page"' : ''}>Custom</a></nav>`;
     const body = tab === 'recommend' ? `${tabs}<div class="box">${recForm()}</div><div id="recOut"></div>` : `${tabs}${buildHtml()}`;
     main.innerHTML = pageHtml('Planning', '', body);
     main.querySelectorAll('[data-tab]').forEach((a) =>

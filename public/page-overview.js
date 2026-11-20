@@ -200,20 +200,68 @@
     const first = (new Date(Date.UTC(y, mo, 1)).getUTCDay() + 6) % 7; // Senin = 0
     const byDate = new Map(o.series.map((r) => [r.date, r.total]));
     for (const r of o.projection) byDate.set(r.date, r.total);
+    const rowOf = new Map(o.series.map((r) => [r.date, r]));
+    for (const r of o.projection) rowOf.set(r.date, r);
     const vals = [];
     for (let d = 1; d <= dim; d++) vals.push(byDate.get(`${o.month}-${String(d).padStart(2, '0')}`) || 0);
-    const max = Math.max(...vals, 0.000001);
+    // Tingkat warna dari rentang biaya hari yang ada (min sampai max). Kalau selisihnya di bawah 5%,
+    // semua hari dianggap setara dan memakai tingkat tengah, supaya kalender tidak tampak penuh "mahal".
+    const pos = vals.filter((v) => v > 0);
+    const max = Math.max(...pos, 0);
+    const min = Math.min(...pos, max);
+    const flat = !pos.length || max - min <= max * 0.05;
+    const level = (v) => (v <= 0 ? 0 : flat ? 2 : Math.min(4, 1 + Math.floor(((v - min) / (max - min)) * 4)));
     const todayN = now.getUTCDate();
     const cells = [];
-    for (let i = 0; i < first; i++) cells.push('<span class="cd pad"></span>');
+    for (let i = 0; i < first; i++) cells.push('<span class="cd pad" aria-hidden="true"></span>');
     vals.forEach((v, i) => {
       const d = i + 1;
-      const lvl = v <= 0 ? 0 : Math.max(1, Math.ceil((v / max) * 4));
-      cells.push(`<span class="cd l${lvl}${d > todayN ? ' fut' : ''}${d === todayN ? ' now' : ''}" title="${d} ${esc(monthName(o.month))}: ${esc(usd(v))}${d > todayN ? ' (forecast)' : ''}"><em>${d}</em></span>`);
+      const lvl = level(v);
+      const fut = d > todayN;
+      cells.push(`<button type="button" class="cd l${lvl}${fut ? ' fut' : ''}${d === todayN ? ' now' : ''}" data-day="${d}" aria-pressed="${d === todayN}" aria-label="${d} ${esc(monthName(o.month))}, ${esc(usd(v))}${fut ? ', forecast' : ''}"><em>${d}</em></button>`);
     });
-    return `<div class="cal-h">${['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'].map((x) => `<span>${x}</span>`).join('')}</div>
-      <div class="cal" role="img" aria-label="Kalender biaya harian ${esc(monthName(o.month))}">${cells.join('')}</div>
-      <div class="cal-k"><span>Rendah</span>${[1, 2, 3, 4].map((l) => `<i class="cd l${l}"></i>`).join('')}<span>Tinggi</span><span class="cal-f"><i class="cd l2 fut"></i>Forecast</span></div>`;
+    // Rincian hari terpilih: total dan per platform. Default hari ini.
+    const detail = (d) => {
+      const date = `${o.month}-${String(d).padStart(2, '0')}`;
+      const r = rowOf.get(date) || {};
+      const fut = d > todayN;
+      const parts = IDS.filter((id) => (r[id] || 0) > 0).map((id) => `<span><i style="background:${COLOR[id]}"></i>${esc(o.platforms[id].label)} <b>${usd(r[id])}</b></span>`).join('');
+      return `<b class="cal-dv">${usd(r.total || 0)}</b><span class="cal-dd">${d} ${esc(monthName(o.month))}${fut ? ', forecast' : d === todayN ? ', hari ini (berjalan)' : ''}</span>${parts ? `<div class="cal-dp">${parts}</div>` : ''}`;
+    };
+    calDetail = detail;
+    const past = vals.slice(0, todayN).reduce((a, v) => a + v, 0);
+    const rest = vals.slice(todayN).reduce((a, v) => a + v, 0);
+    return `<div class="cal-h" aria-hidden="true">${['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'].map((x) => `<span>${x}</span>`).join('')}</div>
+      <div class="cal" role="group" aria-label="Kalender biaya harian ${esc(monthName(o.month))}">${cells.join('')}</div>
+      <div class="cal-detail" id="calDetail" aria-live="polite">${detail(todayN)}</div>
+      <div class="cal-k" aria-hidden="true"><span>Rendah</span>${[1, 2, 3, 4].map((l) => `<i class="cd l${l}"></i>`).join('')}<span>Tinggi</span><span class="cal-f"><i class="cd l2 fut"></i>Forecast</span></div>
+      <p class="mini-s">${flat && pos.length ? 'Biaya harian hampir sama setiap hari. ' : ''}Sampai hari ini ${usd(past)}, forecast sisa bulan ${usd(rest)}. Pilih tanggal untuk melihat rinciannya.</p>`;
+  }
+  let calDetail = null;
+
+  // Klik atau Enter pada hari: tampilkan rinciannya. Panah kiri/kanan/atas/bawah berpindah hari.
+  function bindCalendar(main) {
+    const cal = main.querySelector('.cal');
+    if (!cal) return;
+    const days = [...cal.querySelectorAll('.cd[data-day]')];
+    const pick = (btn, focus) => {
+      days.forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+      $('#calDetail').innerHTML = calDetail(Number(btn.dataset.day));
+      if (focus) btn.focus();
+    };
+    cal.addEventListener('click', (e) => {
+      const b = e.target.closest('.cd[data-day]');
+      if (b) pick(b);
+    });
+    cal.addEventListener('keydown', (e) => {
+      const b = e.target.closest('.cd[data-day]');
+      if (!b) return;
+      const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
+      if (!step) return;
+      e.preventDefault();
+      const n = days[Math.min(days.length - 1, Math.max(0, days.indexOf(b) + step))];
+      pick(n, true);
+    });
   }
 
   // Jam compute bulan ini: server running menghabiskan jam berbayar; stopped tidak.
@@ -225,7 +273,7 @@
     const mem = run.reduce((a, s) => a + (s.memGiB || 0), 0);
     const disk = o.servers.reduce((a, s) => a + (s.diskGB || 0), 0);
     const cell = (v, l) => `<div><b>${v}</b><span>${l}</span></div>`;
-    return `<div class="specs">${cell(`${run.length}/${o.servers.length}`, 'server running')}${cell(vcpu, 'vCPU aktif')}${cell(`${mem.toFixed(1)} GiB`, 'RAM aktif')}${cell(`${disk} GB`, 'disk total')}${cell(usd(compute), 'compute bulan ini')}${cell(`${run.length * hoursSoFar} jam`, 'jam running bila nyala terus')}</div>`;
+    return `<div class="specs">${cell(`${run.length}/${o.servers.length}`, 'server running')}${cell(vcpu, 'vCPU aktif')}${cell(`${mem.toFixed(1)} GiB`, 'RAM aktif')}${cell(`${disk} GB`, 'total disk')}${cell(usd(compute), 'biaya compute bulan ini')}${cell(`${(run.length * hoursSoFar).toLocaleString('id-ID')} jam`, 'jam aktif bulan ini (perkiraan)')}</div>`;
   }
 
   // Server yang biayanya naik atau perlu dicek: stopped tapi masih bayar disk, IP publik di server stopped, dll.
@@ -351,6 +399,7 @@
     main.innerHTML = pageHtml('Dashboard', refreshBar(live), body);
     countUp(main);
     bindRefresh(main);
+    bindCalendar(main);
     C.bind(main);
     main.querySelectorAll('[data-range]').forEach((b) =>
       b.addEventListener('click', () => {
