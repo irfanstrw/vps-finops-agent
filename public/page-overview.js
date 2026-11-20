@@ -191,7 +191,7 @@
     const filters = `<option value="all">Semua platform</option>${IDS.map((id) => `<option value="${id}" ${state.filter === id ? 'selected' : ''}>${esc(o.platforms[id].label)}</option>`).join('')}`;
     const body = `${headline(o)}${platformCards(o)}
       <div class="chart-grid">
-        <section class="card wide"><div class="card-head"><h2>Berapa biaya per hari, dan ke mana arahnya?</h2><div class="seg-ctl" role="group" aria-label="Rentang waktu">${ranges}</div></div><div id="dailyHost">${dailyChart(o)}</div></section>
+        <section class="card wide"><div class="card-head"><h2>Biaya per hari dan forecast sampai akhir bulan</h2><div class="seg-ctl" role="group" aria-label="Rentang waktu">${ranges}</div></div><div id="dailyHost">${dailyChart(o)}</div></section>
         <section class="card"><div class="card-head"><h2>Apakah bulan ini masih di bawah budget?</h2></div>${cumulativeChart(o)}</section>
         <section class="card"><div class="card-head"><h2>Platform mana yang paling mahal?</h2></div>${shareChart(o)}</section>
         <section class="card wide"><div class="card-head"><h2>Server mana yang paling mahal bulan ini?</h2></div>${topChart(o)}</section>
