@@ -25,28 +25,41 @@
       ? `<div class="meter ${b.over ? 'over' : ''}" role="img" aria-label="Perkiraan ${pct.toFixed(0)} persen dari budget"><span style="width:${Math.min(100, pct)}%"></span></div>
          <p class="sub">${b.over ? `Lebih ${usd(t.forecast - b.amount)} dari budget ${usd(b.amount)}.` : `${pct.toFixed(0)}% dari budget ${usd(b.amount)}.`}</p>`
       : '<p class="sub">Budget belum diatur. Atur di bagian Budget di bawah.</p>';
-    return `<div class="summary">
-      <div class="focus">
-        <div class="label">Total bill bulan ${esc(monthName(o.month))} (perkiraan)</div>
+    // Tren kecil di kartu utama: biaya harian 3 minggu terakhir lalu forecast sampai akhir bulan.
+    const hist = o.series.slice(-21).map((r) => r.total);
+    const proj = o.projection.map((r) => r.total);
+    const tile = (label, value, sub) => `<div class="kpi"><span class="kpi-l">${label}</span><b class="kpi-v">${value}</b><small>${sub}</small></div>`;
+    return `<div class="kpis">
+      <section class="kpi hero" aria-label="Total bill bulan ini">
+        <div class="kpi-top"><span class="kpi-l">Total bill ${esc(monthName(o.month))}</span><span class="kpi-tag">forecast</span></div>
         <div class="big">${usd(t.forecast)}</div>
         ${meter}
-      </div>
-      <dl class="facts">
-        <div><dt>Biaya per hari</dt><dd>${usd(t.perDay)}<small>mulai hari ini, dari kondisi server sekarang</small></dd></div>
-        <div><dt>Sudah terpakai</dt><dd>${usd(t.mtd)}<small>${t.credit > 0 ? `${usd(t.credit)} ditutup credits, dibayar ${usd(Math.max(0, t.mtd - t.credit))}` : `1 sampai ${new Date().getUTCDate()} ${esc(monthName(o.month))}`}</small></dd></div>
-        <div><dt>Sisa bulan ini</dt><dd>${usd(t.remaining)}<small>${o.daysLeft} hari x ${usd(t.perDay)}</small></dd></div>
-        <div><dt>Server running</dt><dd>${t.running} dari ${t.servers}</dd></div>
-        <div><dt>Budget tersisa</dt><dd>${usd(b.remaining)}<small>dari ${usd(b.amount)} per bulan</small></dd></div>
-      </dl>
+        <div class="hero-spark">${C.spark({ values: [...hist, ...proj], proj: proj.length, height: 54 })}</div>
+      </section>
+      ${tile('Biaya per hari', usd(t.perDay), 'dari kondisi server sekarang')}
+      ${tile('Sudah terpakai', usd(t.mtd), t.credit > 0 ? `${usd(t.credit)} ditutup credits` : `1 sampai ${new Date().getUTCDate()} ${esc(monthName(o.month))}`)}
+      ${tile('Sisa bulan ini', usd(t.remaining), `${o.daysLeft} hari lagi`)}
+      ${tile('Budget tersisa', usd(b.remaining), `dari ${usd(b.amount)}`)}
     </div>`;
   }
 
   function platformCards(o) {
+    const total = o.totals.forecast || 0;
     return `<div class="sources">${IDS.map((id) => {
       const p = o.platforms[id];
-      const head = `<span class="nm">${L.badge(id, 'logo')}${esc(p.label)}</span>`;
-      if (!p.configured) return `<a class="source off" href="#/integrations/${id}">${head}<span class="st"><span class="off-dot"></span> Belum tersambung. Sambungkan akun.</span></a>`;
-      return `<a class="source" href="#/integrations/${id}">${head}<span class="am">${usd(p.forecastMonth)}</span><span class="st">perkiraan akhir bulan. ${p.running} running, ${p.stopped} stopped.</span></a>`;
+      if (!p.configured) {
+        return `<a class="source off" href="#/integrations/${id}"><span class="nm">${L.badge(id, 'logo')}${esc(p.label)}</span>
+          <span class="st">Belum tersambung</span><span class="src-cta">Sambungkan akun</span></a>`;
+      }
+      const share = total > 0 ? (p.forecastMonth / total) * 100 : 0;
+      const vals = o.series.slice(-14).map((r) => r[id] || 0);
+      return `<a class="source" href="#/integrations/${id}">
+        <span class="nm">${L.badge(id, 'logo')}${esc(p.label)}<span class="src-state"><i class="on-dot"></i>${p.running} running</span></span>
+        <span class="am">${usd(p.forecastMonth)}</span>
+        <span class="share" role="img" aria-label="${share.toFixed(0)} persen dari total"><span style="width:${share.toFixed(1)}%;background:${COLOR[id]}"></span></span>
+        <span class="st">${share.toFixed(0)}% dari total, ${p.stopped} stopped</span>
+        ${C.spark({ values: vals, color: COLOR[id], height: 30 })}
+      </a>`;
     }).join('')}</div>`;
   }
 
@@ -191,10 +204,10 @@
     const filters = `<option value="all">Semua platform</option>${IDS.map((id) => `<option value="${id}" ${state.filter === id ? 'selected' : ''}>${esc(o.platforms[id].label)}</option>`).join('')}`;
     const body = `${headline(o)}${platformCards(o)}
       <div class="chart-grid">
-        <section class="card wide"><div class="card-head"><h2>Biaya per hari dan forecast sampai akhir bulan</h2><div class="seg-ctl" role="group" aria-label="Rentang waktu">${ranges}</div></div><div id="dailyHost">${dailyChart(o)}</div></section>
-        <section class="card"><div class="card-head"><h2>Apakah bulan ini masih di bawah budget?</h2></div>${cumulativeChart(o)}</section>
-        <section class="card"><div class="card-head"><h2>Platform mana yang paling mahal?</h2></div>${shareChart(o)}</section>
-        <section class="card wide"><div class="card-head"><h2>Server mana yang paling mahal bulan ini?</h2></div>${topChart(o)}</section>
+        <section class="card wide"><div class="card-head"><h2>Biaya harian dan forecast</h2><div class="seg-ctl" role="group" aria-label="Rentang waktu">${ranges}</div></div><div id="dailyHost">${dailyChart(o)}</div></section>
+        <section class="card"><div class="card-head"><h2>Kumulatif bulan ini vs budget</h2></div>${cumulativeChart(o)}</section>
+        <section class="card"><div class="card-head"><h2>Porsi per platform</h2></div>${shareChart(o)}</section>
+        <section class="card wide"><div class="card-head"><h2>Biaya bulan ini per server</h2></div>${topChart(o)}</section>
       </div>
       <section class="section"><h2>Penggunaan per platform</h2>${usageTable(o)}</section>
       <section class="section"><div class="card-head"><h2>Server terdaftar</h2><label class="row" style="gap:6px">Filter<select id="srvFilter" style="width:auto">${filters}</select></label></div><div id="srvHost">${serverTable(o)}</div></section>
@@ -202,6 +215,7 @@
       ${anomalySection(o)}
       ${budgetSection(o)}`;
     main.innerHTML = pageHtml('Dashboard', refreshBar(live), body);
+    countUp(main);
     bindRefresh(main);
     C.bind(main);
     main.querySelectorAll('[data-range]').forEach((b) =>
@@ -219,14 +233,36 @@
     bindBudget(main);
   }
 
-  const refreshBar = (live) => `<div class="row">${live}<button class="btn small" type="button" id="refreshBtn">Refresh</button></div>`;
+  // Angka dolar di kartu atas naik dari nol satu kali saat halaman pertama dibuka (bukan saat refresh otomatis),
+  // supaya mata langsung tertuju ke angka utama. Dilewati kalau pengguna meminta gerak dikurangi.
+  let counted = false;
+  function countUp(main) {
+    if (counted || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    counted = true;
+    main.querySelectorAll('.big, .kpi-v').forEach((el) => {
+      const m = /^\$([\d.]+)$/.exec(el.textContent.trim());
+      if (!m) return;
+      const to = Number(m[1]);
+      const dec = (m[1].split('.')[1] || '').length;
+      const t0 = performance.now();
+      const step = (t) => {
+        const k = Math.min(1, (t - t0) / 650);
+        el.textContent = `$${(to * (1 - Math.pow(1 - k, 3))).toFixed(dec)}`;
+        if (k < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    });
+  }
+
+  const refreshBar = (live) => `<div class="row">${live}<button class="btn small" type="button" id="refreshBtn">${L.icon('refresh')}<span>Refresh</span></button></div>`;
 
   // Refresh: baca ulang status server dan bills dari semua platform yang tersambung, lalu gambar ulang.
   function bindRefresh(main) {
     $('#refreshBtn').addEventListener('click', async (e) => {
       const b = e.currentTarget;
       b.disabled = true;
-      b.textContent = 'Memperbarui...';
+      b.classList.add('spinning');
+      b.querySelector('span').textContent = 'Memperbarui...';
       const st = await api('GET', '/api/overview').then((x) => x.status).catch(() => ({}));
       await Promise.all(IDS.filter((id) => st[id]?.configured).map((id) => api('POST', `/api/cloud/${id}/sync`).catch(() => null)));
       const y = main.querySelector('.page')?.scrollTop || 0;

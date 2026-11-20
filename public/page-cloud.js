@@ -103,12 +103,6 @@
           : `<label>${esc(f.label)}<input data-k="${f.k}" type="${f.type}" autocomplete="off" placeholder="${esc(ph)}" value="${esc(cur)}" ${dis}></label>`;
       })
       .join('');
-    const billHtml = sum && sum.billed
-      ? `<section class="section"><h2>Bills server, 30 hari terakhir</h2>
-          ${C.line({ rows: sum.series.map((d) => ({ date: d.date, label: d.date.slice(5), v: d.total })), label: `Bills harian ${def.title}`, height: 190, color: { aws: 'var(--p-aws)', azure: 'var(--p-azure)', gcp: 'var(--p-gcp)' }[id], valueLabel: 'Bills' })}
-          ${sum.services.length ? `<div style="margin-top:14px">${C.hbars({ rows: sum.services.slice(0, 6).map((x) => ({ label: x.name, value: x.amount })), label: `Bills per layanan ${def.title}` })}</div>` : ''}
-          <p class="muted">Compute, disk, dan jaringan. Data terbaru ${esc(sum.lastDate)}.</p></section>`
-      : '';
     const body = `${tabs}
       <div class="intro">${L.badge(id, 'logo lg')}<p class="muted">${esc(def.intro)}</p></div>
       <div class="note"><ul class="flow">${def.flow.map((x) => `<li>${x}</li>`).join('')}</ul></div>
@@ -118,7 +112,6 @@
           <div class="row"><button class="btn primary" type="submit" ${s.fromEnv ? 'disabled' : ''}>Simpan</button><button class="btn" type="button" id="cloudSync" ${s.configured ? '' : 'disabled'}>Refresh</button>${s.configured && !s.fromEnv ? '<button class="btn danger" type="button" id="cloudClear">Putuskan</button>' : ''}<span id="cloudResult" role="status"></span></div>
         </form></section>
       ${s.configured ? `<section class="section"><h2>Server terdaftar (${esc(s.servers.length)})</h2>${serversHtml(s.servers)}</section>` : ''}
-      ${billHtml}
       <section class="section"><h2>Cara menyiapkan kredensial read-only</h2>
         <ol class="steps">${def.steps.map((x) => `<li>${x}</li>`).join('')}</ol>
         ${def.policy ? `<p>IAM policy (read-only):</p>${codeBox(def.policy)}` : ''}

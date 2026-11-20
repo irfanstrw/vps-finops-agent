@@ -197,6 +197,18 @@
     });
   }
 
+  // Sparkline: tren kecil tanpa sumbu untuk kartu angka. proj = jumlah titik terakhir yang berupa forecast.
+  function spark({ values, color = 'var(--accent)', height = 40, proj = 0 }) {
+    if (!values.length || !values.some((v) => v > 0)) return '';
+    const VW = 200, VH = 40, n = values.length;
+    const max = Math.max(...values, 0.000001);
+    const pts = values.map((v, i) => [n === 1 ? VW / 2 : (i / (n - 1)) * VW, VH - 2 - (v / max) * (VH - 6)]);
+    const cut = Math.max(1, n - proj);
+    const hist = pts.slice(0, cut), fut = proj ? pts.slice(cut - 1) : [];
+    const area = hist.length > 1 ? `<path class="sp-area" d="${smooth(hist)}L${hist[hist.length - 1][0].toFixed(1)},${VH}L${hist[0][0].toFixed(1)},${VH}Z" style="fill:${color}"/>` : '';
+    return `<svg class="spark" viewBox="0 0 ${VW} ${VH}" preserveAspectRatio="none" style="height:${height}px" aria-hidden="true">${area}<path class="sp-ln" pathLength="1" d="${smooth(hist)}" style="stroke:${color}"/>${fut.length > 1 ? `<path class="sp-ln proj" d="${smooth(fut)}" style="stroke:${color}"/>` : ''}</svg>`;
+  }
+
   // Satu seri: dipakai grafik kumulatif dan planning.
   function line({ rows, label, height = 200, color = 'var(--s1)', refLine, refLabel, valueLabel = 'Biaya' }) {
     return lines({ rows: rows.map((r) => ({ ...r, label: r.label || r.date })), series: [{ key: 'v', label: valueLabel, color, area: true }], label, height, refLine, refLabel });
@@ -291,5 +303,5 @@
     });
   }
 
-  window.Charts = { bars, line, lines, donut, hbars, bind: (root) => { bind(root); bindLines(root); }, usd, short };
+  window.Charts = { bars, line, lines, donut, hbars, spark, bind: (root) => { bind(root); bindLines(root); }, usd, short };
 })();

@@ -165,7 +165,9 @@
   function applyTheme() {
     const light = localStorage.theme === 'light';
     document.body.classList.toggle('light', light);
-    $('#themeBtn').textContent = light ? 'Mode gelap' : 'Mode terang';
+    const label = light ? 'Mode gelap' : 'Mode terang';
+    $('#themeBtn').innerHTML = `${window.Logos ? window.Logos.icon(light ? 'moon' : 'sun') : ''}<span>${label}</span>`;
+    $('#themeBtn').setAttribute('aria-label', label);
   }
   $('#themeBtn').addEventListener('click', () => {
     localStorage.theme = document.body.classList.contains('light') ? 'dark' : 'light';
@@ -176,8 +178,15 @@
 
   // Logo produk di header dan halaman masuk (skrip logos.js dimuat sebelum file ini).
   if (window.Logos) {
-    $('#brandLogo').innerHTML = window.Logos.product('logo');
-    $('#loginLogo').innerHTML = window.Logos.product('logo');
+    const L = window.Logos;
+    $('#brandLogo').innerHTML = L.product('logo');
+    $('#loginLogo').innerHTML = L.product('logo');
+    // Ikon di setiap item menu: nama halaman diambil dari data-nav, teks tetap ada di samping ikon.
+    document.querySelectorAll('.nav a[data-nav]').forEach((a) => a.insertAdjacentHTML('afterbegin', L.icon(a.dataset.nav)));
+    $('#newChatBtn').insertAdjacentHTML('afterbegin', L.icon('plus'));
+    $('#logoutBtn').innerHTML = `${L.icon('logout')}<span>Keluar</span>`;
+    $('#logoutBtn').setAttribute('aria-label', 'Keluar');
+    $('#menuBtn').innerHTML = `${L.icon('menu')}<span class="sr-only">Menu</span>`;
   }
 
   // ---------- kerangka ----------
