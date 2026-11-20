@@ -170,7 +170,8 @@ route('GET', '/api/cron', async (req, res) => {
 route('GET', '/api/overview', async (req, res) => {
   // Status server (running/stopped) dibaca ulang paling cepat tiap menit. Bills tetap sekali sehari.
   await Promise.all([aws.refreshServers(), azure.refreshServers(), gcp.refreshServers()]);
-  const o = cloud.overview(30);
+  // 62 hari supaya widget "dibanding bulan lalu" punya data bulan sebelumnya.
+  const o = cloud.overview(62);
   send(res, 200, {
     ...o,
     status: cloud.status(),
@@ -233,6 +234,7 @@ route('GET', '/api/plan/catalog', async (req, res) => {
     kinds: cloud.PLAN_ITEMS,
     providers: Object.fromEntries(Object.entries(pricing.PROVIDERS).map(([k, v]) => [k, { label: v.label, product: v.product, region: v.region, diskLabel: v.diskLabel, instances: v.instances }])),
     workloads: Object.fromEntries(Object.entries(cloud.WORKLOADS).map(([k, v]) => [k, { label: v.label, note: v.note }])),
+    scales: cloud.SCALES,
     savedPlans: store.db.plans || [],
   });
 });

@@ -114,6 +114,133 @@
     return C.hbars({ rows: rows.slice(0, 6), label: 'Biaya bulan ini per server' });
   }
 
+  // ---------- widget tambahan (semua dari data server dan bills yang sudah ada) ----------
+  const PARTS = [
+    { key: 'compute', label: 'Compute', color: 'var(--s1)' },
+    { key: 'disk', label: 'Disk', color: 'var(--p-azure)' },
+    { key: 'ip', label: 'IPv4 publik', color: 'var(--p-gcp)' },
+    { key: 'snapshot', label: 'Snapshot', color: 'var(--s3)' },
+    { key: 'transfer', label: 'Data transfer', color: 'var(--s4)' },
+  ];
+
+  // Komposisi biaya bulan ini per komponen: di mana uang sebenarnya habis.
+  function compositionWidget(o) {
+    const agg = {};
+    for (const s of o.servers) for (const b of s.breakdown || []) agg[b.key] = (agg[b.key] || 0) + b.used + b.rest;
+    const slices = PARTS.map((p) => ({ label: p.label, value: agg[p.key] || 0, color: p.color })).filter((x) => x.value > 0.00005);
+    if (!slices.length) return '<p class="chart-empty">Belum ada biaya.</p>';
+    return C.donut({ slices, label: 'Komposisi biaya bulan ini per komponen', size: 132, center: { top: usd(slices.reduce((a, x) => a + x.value, 0)), bottom: 'bulan ini' } });
+  }
+
+  // Bulan ini dibanding periode yang sama bulan lalu (tanggal 1 sampai hari ini). Butuh data bulan lalu di series.
+  function momWidget(o) {
+    const now = new Date();
+    const d = now.getUTCDate();
+    const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+    const sumMonth = (ym) => o.series.filter((r) => r.date.startsWith(ym) && Number(r.date.slice(8)) <= d).reduce((a, r) => a + r.total, 0);
+    const cur = o.totals.mtd;
+    const hasPrev = o.series.some((r) => r.date.startsWith(prev) && Number(r.date.slice(8)) === 1);
+    const last = sumMonth(prev);
+    if (!hasPrev) return `<div class="mini"><b class="mini-v">${usd(cur)}</b><span class="mini-s">Data bulan lalu belum lengkap untuk dibandingkan.</span></div>`;
+    const diff = cur - last;
+    const pct = last > 0 ? (diff / last) * 100 : 0;
+    const dir = Math.abs(diff) < 0.005 ? 'flat' : diff > 0 ? 'up' : 'down';
+    return `<div class="mini"><b class="mini-v">${usd(cur)}</b>
+      <span class="delta ${dir}">${dir === 'flat' ? 'Sama' : `${dir === 'up' ? 'Naik' : 'Turun'} ${usd(Math.abs(diff))}${last > 0 ? ` (${Math.abs(pct).toFixed(0)}%)` : ''}`}</span>
+      <span class="mini-s">vs ${usd(last)} pada 1 sampai ${d} bulan lalu</span>
+      <div class="mini-bars"><span style="--w:${last + cur > 0 ? ((last / Math.max(last, cur)) * 100).toFixed(1) : 0}%"><i></i>Bulan lalu</span><span class="cur" style="--w:${last + cur > 0 ? ((cur / Math.max(last, cur)) * 100).toFixed(1) : 0}%"><i></i>Bulan ini</span></div></div>`;
+  }
+
+  // Budget runway: kalau biaya per hari tetap seperti sekarang, kapan budget bulan ini habis.
+  function runwayWidget(o) {
+    const b = o.budget;
+    const t = o.totals;
+    if (!b.amount) return '<p class="chart-empty">Budget belum diatur.</p>';
+    const left = b.amount - t.mtd;
+    const pctUsed = Math.min(100, (t.mtd / b.amount) * 100);
+    const pctForecast = Math.min(100, (t.forecast / b.amount) * 100);
+    let line;
+    if (left <= 0) line = 'Budget bulan ini sudah habis.';
+    else if (t.perDay <= 0) line = 'Tidak ada biaya berjalan, budget aman.';
+    else {
+      const days = Math.floor(left / t.perDay);
+      line = days > o.daysLeft ? `Cukup sampai akhir bulan, sisa sekitar ${usd(b.amount - t.forecast)}.` : `Habis dalam sekitar ${days} hari dengan ${usd(t.perDay)} per hari.`;
+    }
+    return `<div class="mini"><b class="mini-v">${pctUsed.toFixed(0)}%<small> terpakai</small></b>
+      <div class="gauge" role="img" aria-label="${pctUsed.toFixed(0)} persen budget terpakai, forecast ${pctForecast.toFixed(0)} persen"><span class="used" style="width:${pctUsed}%"></span><span class="fc" style="left:${pctUsed}%;width:${Math.max(0, pctForecast - pctUsed)}%"></span></div>
+      <div class="gauge-l"><span>${usd(t.mtd)} terpakai</span><span>forecast ${usd(t.forecast)}</span><span>${usd(b.amount)}</span></div>
+      <span class="mini-s">${line}</span></div>`;
+  }
+
+  // Biaya rata-rata per hari dalam seminggu: hari mana yang paling mahal (pola jadwal server).
+  function weekdayWidget(o) {
+    const NAMA = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+    const acc = Array.from({ length: 7 }, () => ({ s: 0, n: 0 }));
+    const today = new Date().toISOString().slice(0, 10);
+    for (const r of o.series.slice(-28)) {
+      if (r.date === today) continue;
+      const w = new Date(r.date + 'T00:00:00Z').getUTCDay();
+      acc[w].s += r.total;
+      acc[w].n += 1;
+    }
+    const avg = acc.map((x) => (x.n ? x.s / x.n : 0));
+    const max = Math.max(...avg, 0.000001);
+    if (!avg.some((v) => v > 0)) return '<p class="chart-empty">Belum ada biaya harian.</p>';
+    const order = [1, 2, 3, 4, 5, 6, 0];
+    return `<div class="wkbars" role="img" aria-label="Rata-rata biaya per hari dalam seminggu, 4 minggu terakhir">${order
+      .map((w) => `<div class="wk${avg[w] === max ? ' top' : ''}" title="${NAMA[w]}: ${esc(usd(avg[w]))}"><span class="wk-v">${esc(usd(avg[w]))}</span><span class="wk-b"><i style="height:${((avg[w] / max) * 100).toFixed(1)}%"></i></span><span class="wk-l">${NAMA[w]}</span></div>`)
+      .join('')}</div><p class="mini-s">Rata-rata 4 minggu terakhir.</p>`;
+  }
+
+  // Kalender biaya bulan ini: satu kotak per hari, makin pekat makin mahal. Hari mendatang berupa forecast.
+  function calendarWidget(o) {
+    const now = new Date();
+    const y = now.getUTCFullYear(), mo = now.getUTCMonth();
+    const dim = new Date(Date.UTC(y, mo + 1, 0)).getUTCDate();
+    const first = (new Date(Date.UTC(y, mo, 1)).getUTCDay() + 6) % 7; // Senin = 0
+    const byDate = new Map(o.series.map((r) => [r.date, r.total]));
+    for (const r of o.projection) byDate.set(r.date, r.total);
+    const vals = [];
+    for (let d = 1; d <= dim; d++) vals.push(byDate.get(`${o.month}-${String(d).padStart(2, '0')}`) || 0);
+    const max = Math.max(...vals, 0.000001);
+    const todayN = now.getUTCDate();
+    const cells = [];
+    for (let i = 0; i < first; i++) cells.push('<span class="cd pad"></span>');
+    vals.forEach((v, i) => {
+      const d = i + 1;
+      const lvl = v <= 0 ? 0 : Math.max(1, Math.ceil((v / max) * 4));
+      cells.push(`<span class="cd l${lvl}${d > todayN ? ' fut' : ''}${d === todayN ? ' now' : ''}" title="${d} ${esc(monthName(o.month))}: ${esc(usd(v))}${d > todayN ? ' (forecast)' : ''}"><em>${d}</em></span>`);
+    });
+    return `<div class="cal-h">${['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'].map((x) => `<span>${x}</span>`).join('')}</div>
+      <div class="cal" role="img" aria-label="Kalender biaya harian ${esc(monthName(o.month))}">${cells.join('')}</div>
+      <div class="cal-k"><span>Rendah</span>${[1, 2, 3, 4].map((l) => `<i class="cd l${l}"></i>`).join('')}<span>Tinggi</span><span class="cal-f"><i class="cd l2 fut"></i>Forecast</span></div>`;
+  }
+
+  // Jam compute bulan ini: server running menghabiskan jam berbayar; stopped tidak.
+  function computeWidget(o) {
+    const run = o.servers.filter((s) => s.state === 'running');
+    const hoursSoFar = (new Date().getUTCDate() - 1) * 24 + new Date().getUTCHours();
+    const compute = o.servers.reduce((a, s) => a + ((s.breakdown || []).find((b) => b.key === 'compute')?.used || 0), 0);
+    const vcpu = run.reduce((a, s) => a + (s.vcpu || 0), 0);
+    const mem = run.reduce((a, s) => a + (s.memGiB || 0), 0);
+    const disk = o.servers.reduce((a, s) => a + (s.diskGB || 0), 0);
+    const cell = (v, l) => `<div><b>${v}</b><span>${l}</span></div>`;
+    return `<div class="specs">${cell(`${run.length}/${o.servers.length}`, 'server running')}${cell(vcpu, 'vCPU aktif')}${cell(`${mem.toFixed(1)} GiB`, 'RAM aktif')}${cell(`${disk} GB`, 'disk total')}${cell(usd(compute), 'compute bulan ini')}${cell(`${run.length * hoursSoFar} jam`, 'jam running bila nyala terus')}</div>`;
+  }
+
+  // Server yang biayanya naik atau perlu dicek: stopped tapi masih bayar disk, IP publik di server stopped, dll.
+  function alertsWidget(o) {
+    const items = [];
+    const b = o.budget;
+    if (b.amount && b.over) items.push({ lvl: 'bad', text: `Forecast ${usd(o.totals.forecast)} melewati budget ${usd(b.amount)}.` });
+    for (const a of o.anomalies.slice(0, 2)) items.push({ lvl: 'warn', text: `Lonjakan ${a.label} pada ${a.date}: ${usd(a.actual)}, biasanya ${usd(a.expected)}.` });
+    for (const s of o.savings.slice(0, 3)) items.push({ lvl: 'info', text: `${s.server.name}: ${s.text}`, amt: s.monthly });
+    const off = IDS.filter((id) => !o.platforms[id].configured).map((id) => o.platforms[id].label);
+    if (off.length) items.push({ lvl: 'muted', text: `${off.join(' dan ')} belum tersambung.` });
+    if (!items.length) return '<p class="chart-empty">Tidak ada yang perlu dicek.</p>';
+    return `<ul class="alerts">${items.map((x) => `<li class="al-${x.lvl}"><span>${esc(x.text)}</span>${x.amt ? `<b>${usd(x.amt)}/bln</b>` : ''}</li>`).join('')}</ul>`;
+  }
+
   function usageTable(o) {
     const rows = IDS.map((id) => {
       const p = o.platforms[id];
@@ -207,7 +334,14 @@
         <section class="card wide"><div class="card-head"><h2>Biaya harian dan forecast</h2><div class="seg-ctl" role="group" aria-label="Rentang waktu">${ranges}</div></div><div id="dailyHost">${dailyChart(o)}</div></section>
         <section class="card"><div class="card-head"><h2>Kumulatif bulan ini vs budget</h2></div>${cumulativeChart(o)}</section>
         <section class="card"><div class="card-head"><h2>Porsi per platform</h2></div>${shareChart(o)}</section>
+        <section class="card"><div class="card-head"><h2>Komposisi biaya</h2><span class="muted">bulan ini</span></div>${compositionWidget(o)}</section>
+        <section class="card"><div class="card-head"><h2>Budget runway</h2></div>${runwayWidget(o)}</section>
+        <section class="card"><div class="card-head"><h2>Dibanding bulan lalu</h2></div>${momWidget(o)}</section>
+        <section class="card"><div class="card-head"><h2>Perlu dicek</h2></div>${alertsWidget(o)}</section>
         <section class="card wide"><div class="card-head"><h2>Biaya bulan ini per server</h2></div>${topChart(o)}</section>
+        <section class="card"><div class="card-head"><h2>Kalender biaya</h2><span class="muted">${esc(monthName(o.month))}</span></div>${calendarWidget(o)}</section>
+        <section class="card"><div class="card-head"><h2>Biaya per hari dalam seminggu</h2></div>${weekdayWidget(o)}</section>
+        <section class="card wide"><div class="card-head"><h2>Kapasitas aktif</h2></div>${computeWidget(o)}</section>
       </div>
       <section class="section"><h2>Penggunaan per platform</h2>${usageTable(o)}</section>
       <section class="section"><div class="card-head"><h2>Server terdaftar</h2><label class="row" style="gap:6px">Filter<select id="srvFilter" style="width:auto">${filters}</select></label></div><div id="srvHost">${serverTable(o)}</div></section>

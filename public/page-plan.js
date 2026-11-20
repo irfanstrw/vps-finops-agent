@@ -16,28 +16,43 @@
   let timer = null;
   let lastCalc = null;
   let tab = 'recommend';
-  const form = { budget: 25, workload: 'webapp', visits: 20000, storageGB: 10, providers: [...IDS], arch: 'any' };
+  const form = { budget: 25, workload: 'webapp', scale: 'small', storageGB: 10, providers: [...IDS], arch: 'any' };
+  const ARCH = { any: ['Bebas', 'Pilih yang paling hemat'], x86_64: ['x86_64', 'Intel atau AMD, paling kompatibel'], arm64: ['arm64', 'Lebih hemat, cek kompatibilitas aplikasi'] };
 
   const DEFAULT_TYPE = { aws: 't3a.small', azure: 'Standard_B1ms', gcp: 'e2-small' };
 
   // ---------- rekomendasi ----------
+  // Pilihan berupa kartu radio/checkbox asli (bisa Tab, Space, dan dibaca pembaca layar), bukan dropdown,
+  // supaya semua opsi dan penjelasannya terlihat sekaligus.
+  const choice = (type, name, value, checked, title, note, extra = '') =>
+    `<label class="opt"><input type="${type}" name="${name}" value="${esc(value)}" ${checked ? 'checked' : ''}><span class="opt-b">${extra}<b>${esc(title)}</b>${note ? `<small>${esc(note)}</small>` : ''}</span></label>`;
+
   function recForm() {
-    const wl = Object.entries(cat.workloads).map(([k, v]) => `<option value="${k}" ${form.workload === k ? 'selected' : ''}>${esc(v.label)}</option>`).join('');
-    const prov = IDS.map((id) => `<label class="chk">${L.badge(id, 'logo xs')}<input type="checkbox" data-prov="${id}" ${form.providers.includes(id) ? 'checked' : ''}> ${esc(cat.providers[id].label)}</label>`).join('');
-    return `<form id="recForm" class="rec-form">
-      <label>Budget per bulan (USD)<input type="number" id="rBudget" min="1" step="any" value="${esc(form.budget)}" required></label>
-      <label>Mau bikin apa<select id="rWork">${wl}</select></label>
-      <label>Perkiraan kunjungan per bulan<input type="number" id="rVisits" min="0" step="1000" value="${esc(form.visits)}"></label>
-      <label>Data yang disimpan (GB)<input type="number" id="rStore" min="0" step="1" value="${esc(form.storageGB)}"></label>
-      <label>Arsitektur CPU<select id="rArch"><option value="any" ${form.arch === 'any' ? 'selected' : ''}>Bebas</option><option value="x86_64" ${form.arch === 'x86_64' ? 'selected' : ''}>x86_64 (Intel/AMD)</option><option value="arm64" ${form.arch === 'arm64' ? 'selected' : ''}>arm64 (lebih hemat, cek kompatibilitas)</option></select></label>
-      <fieldset class="span2"><legend>Platform yang dipertimbangkan</legend><div class="row">${prov}</div></fieldset>
-      <div class="span2 row"><button class="btn primary" type="submit">Cari spesifikasi</button><span class="muted" id="rNote">${esc(cat.workloads[form.workload].note)}</span></div>
+    const wl = Object.entries(cat.workloads).map(([k, v]) => choice('radio', 'rWork', k, form.workload === k, v.label, v.note)).join('');
+    const sc = Object.entries(cat.scales).map(([k, v]) => choice('radio', 'rScale', k, form.scale === k, v.label, v.note)).join('');
+    const prov = IDS.map((id) => choice('checkbox', 'rProv', id, form.providers.includes(id), cat.providers[id].label, cat.providers[id].region.name, L.badge(id, 'logo sm'))).join('');
+    const ar = Object.entries(ARCH).map(([k, v]) => choice('radio', 'rArch', k, form.arch === k, v[0], v[1])).join('');
+    return `<form id="recForm" class="rec-form2">
+      <fieldset class="step"><legend><span class="step-n">1</span>Jenis aplikasi</legend><div class="opts opts-3">${wl}</div></fieldset>
+      <fieldset class="step"><legend><span class="step-n">2</span>Skala pemakaian</legend><div class="opts opts-3">${sc}</div></fieldset>
+      <fieldset class="step"><legend><span class="step-n">3</span>Budget dan penyimpanan</legend>
+        <div class="step-row">
+          <label>Budget per bulan (USD)<span class="inp-pre"><i>$</i><input type="number" id="rBudget" min="1" step="any" value="${esc(form.budget)}" required></span></label>
+          <label>Kapasitas penyimpanan data (GB)<input type="number" id="rStore" min="0" step="1" value="${esc(form.storageGB)}"></label>
+        </div>
+        <div class="quick" role="group" aria-label="Pilihan cepat budget">${[10, 25, 50, 100].map((v) => `<button type="button" class="btn small${Number(form.budget) === v ? ' on' : ''}" data-budget="${v}" aria-pressed="${Number(form.budget) === v}">$${v}</button>`).join('')}</div>
+      </fieldset>
+      <fieldset class="step"><legend><span class="step-n">4</span>Platform</legend><div class="opts opts-3">${prov}</div></fieldset>
+      <details class="step adv"${form.arch !== 'any' ? ' open' : ''}><summary>Pengaturan lanjutan</summary>
+        <fieldset><legend>Arsitektur CPU</legend><div class="opts opts-3">${ar}</div></fieldset>
+      </details>
+      <div class="rec-submit"><button class="btn primary" type="submit">Hitung rekomendasi</button><span class="muted" id="rSum"></span></div>
     </form>`;
   }
 
   function recResult(r) {
     const req = r.requirement;
-    const need = `<div class="stats"><div class="stat"><div class="sv">${req.vcpu} vCPU</div><div class="sl">kebutuhan CPU per server</div></div><div class="stat"><div class="sv">${req.mem} GiB</div><div class="sl">kebutuhan RAM per server</div></div><div class="stat"><div class="sv">${req.diskGB} GB</div><div class="sl">disk per server</div></div><div class="stat"><div class="sv">${req.egressGB} GB</div><div class="sl">data keluar per bulan</div></div></div>`;
+    const need = `<div class="stats"><div class="stat"><div class="sv">${req.vcpu} vCPU</div><div class="sl">kebutuhan CPU</div></div><div class="stat"><div class="sv">${req.mem} GiB</div><div class="sl">kebutuhan RAM</div></div><div class="stat"><div class="sv">${req.diskGB} GB</div><div class="sl">disk</div></div><div class="stat"><div class="sv">${req.egressGB} GB</div><div class="sl">perkiraan data keluar per bulan</div></div></div>`;
     const best = r.best
       ? `<div class="pick">${L.badge(r.best.provider, 'logo lg')}<div><div class="label muted">Disarankan</div><div class="pick-name">${esc(r.best.label)} <code>${esc(r.best.type)}</code>${r.best.count > 1 ? ` x ${r.best.count}` : ''}</div>
           <div class="big">${usd(r.best.monthly)}<small> per bulan</small></div><p class="muted" style="margin:0">${esc(r.best.region.name)}. Sisa budget ${usd(r.best.left)}.</p></div></div>
@@ -73,16 +88,21 @@
   }
 
   function bindRec(main) {
+    const val = (n) => main.querySelector(`input[name="${n}"]:checked`)?.value;
     const read = () => {
       form.budget = Number($('#rBudget').value);
-      form.workload = $('#rWork').value;
-      form.visits = Number($('#rVisits').value) || 0;
+      form.workload = val('rWork') || form.workload;
+      form.scale = val('rScale') || form.scale;
       form.storageGB = Number($('#rStore').value) || 0;
-      form.arch = $('#rArch').value;
-      form.providers = IDS.filter((id) => main.querySelector(`[data-prov="${id}"]`).checked);
-      $('#rNote').textContent = cat.workloads[form.workload].note;
+      form.arch = val('rArch') || 'any';
+      form.providers = [...main.querySelectorAll('input[name="rProv"]:checked')].map((x) => x.value);
+      $('#rSum').textContent = `${cat.workloads[form.workload].label}, skala ${cat.scales[form.scale].label.toLowerCase()}, budget $${form.budget || 0}`;
+      main.querySelectorAll('[data-budget]').forEach((b) => { const on = Number(b.dataset.budget) === form.budget; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
     };
+    main.querySelectorAll('[data-budget]').forEach((b) => b.addEventListener('click', () => { $('#rBudget').value = b.dataset.budget; read(); }));
     $('#recForm').addEventListener('change', read);
+    $('#recForm').addEventListener('input', read);
+    read();
     $('#recForm').addEventListener('submit', (e) => {
       e.preventDefault();
       read();
